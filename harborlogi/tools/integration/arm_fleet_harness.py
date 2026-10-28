@@ -82,6 +82,7 @@ class ArmFleet:
     def __init__(self, *, root, workdir, request_key_path=None):
         self.root, self.workdir = Path(root), Path(workdir)
         self.request_key_path = Path(request_key_path) if request_key_path else None
+        self.include_joint_evidence = False
         self.tokens = {name: secrets.token_urlsafe(40) for name in ("operator", "viewer", "approver")}
         self.observer_token = secrets.token_urlsafe(40)
         self.url = f"http://127.0.0.1:{_free_port()}"
@@ -190,6 +191,12 @@ class ArmFleet:
             "links": {link: {"bounds": {"min_m": [1, 1, 1], "max_m": [1.1, 1.1, 1.1]},
                 "linear_velocity_m_s": [0, 0, 0], "angular_velocity_rad_s": [0, 0, 0]} for link in self.links}}
             for owner in context["owners"]]
+        if self.include_joint_evidence:
+            # Synthetic HTTP fixture only; these are not Gazebo or device measurements.
+            for owner in owners:
+                owner["joints"] = dict(sample_id=f"joint-{owner['instance_id']}-{sequence}",
+                    sequence=sequence, observed_at_ns=now, joint_names=["joint1", "joint2"],
+                    positions_rad=[0.1, -0.2])
         fields = ("producer_id", "evaluator_revision", "action_id", "attempt_id", "frame_id", "policy_digest",
                   "catalog_digest", "bindings_digest", "object_ref", "object_origin_id")
         return {**{k: context[k] for k in fields}, "evidence_id": "sample-" + str(sequence), "sequence": sequence,
