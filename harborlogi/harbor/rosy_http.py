@@ -110,6 +110,9 @@ class RosyClient:
     def physical_receipt(self, mission_id):
         return self._call("GET", "/api/fleet/arm-transfers/jobs/" + quote(mission_id, safe="") + "/physical-receipt", None)
 
+    def physical_evidence(self, mission_id):
+        return self._call("GET", "/api/fleet/arm-transfers/jobs/" + quote(mission_id, safe="") + "/physical-evidence", None)
+
     def cancel_arm(self, mission_id, *, reason):
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 192 or any(ord(c) < 32 for c in reason):
             raise ValueError('Expected a short cancellation reason')
