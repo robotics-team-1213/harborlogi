@@ -74,6 +74,13 @@ class PhysicalEvidenceAdapter:
         by_arm = {arm.arm: arm for arm in self.arms}
         if not required_arms or not set(required_arms) <= set(by_arm):
             raise ValueError("Every related arm needs an installed measurement binding")
+        primary = (binding.workcell_id, binding.instance_id)
+        if binding.yard_arm is not None:
+            installed = by_arm.get(binding.yard_arm)
+            if installed is None or (installed.workcell_id, installed.instance_id) != primary:
+                raise ValueError("Yard arm differs from the transfer's installed owner")
+        elif primary not in {(by_arm[name].workcell_id, by_arm[name].instance_id) for name in required_arms}:
+            raise ValueError("Primary transfer owner is absent from the required arm bindings")
         job = binding.check(client.arm_job(mission_id)["job"], request_key)
         if job["mission_id"] != mission_id or job["resource_policy_digest"] != self.policy_digest:
             raise ValueError("Physical job differs from the original mission or installed policy")

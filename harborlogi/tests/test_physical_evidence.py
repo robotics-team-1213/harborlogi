@@ -1,6 +1,6 @@
 """Public immutable proof maps to business facts without inventing a measured pose."""
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import json
@@ -141,6 +141,38 @@ class PhysicalEvidenceTests(unittest.TestCase):
         self.response["released_zone_ids"] = ["different-zone"]
         with self.assertRaises(ValueError):
             self.read()
+
+    def test_two_owner_arm_correspondence_cannot_be_swapped(self):
+        from harbor.physical_evidence import RetreatBinding
+        def add_second_owner(document):
+            owner = {**document["context"]["owners"][0], "instance_id": "arm-b"}
+            document["context"]["owners"].append(owner)
+            for sample in document["samples"]:
+                measured = deepcopy(sample["owners"][0])
+                measured.update(owner)
+                measured["joints"]["positions_rad"] = [0.8, 0.9]
+                measured["joints"]["sample_id"] += "-b"
+                sample["owners"].append(measured)
+        self.response = changed_document(self.response, add_second_owner)
+        original = self.adapter.arms[0]
+        self.adapter = replace(self.adapter, arms=(original,
+            RetreatBinding("B", "cell-1", "arm-b", "shared-zone", original.joint_names)))
+        evidence = self.read(required_arms=("A", "B"))
+        self.assertEqual(evidence.retreat.arms[1].joint_positions, (0.8, 0.9))
+        self.adapter = replace(self.adapter, arms=(replace(original, instance_id="arm-b"),
+            RetreatBinding("B", "cell-1", "arm-a", "shared-zone", original.joint_names)))
+        with self.assertRaises(ValueError):
+            self.read(required_arms=("A", "B"))
+
+    def test_unnamed_binding_primary_owner_must_belong_to_required_arms(self):
+        from harbor.physical_evidence import RetreatBinding
+        self.adapter = replace(self.adapter, arms=(self.adapter.arms[0],
+            RetreatBinding("B", "cell-1", "arm-b", "shared-zone", ("joint1", "joint2"))))
+        with self.assertRaises(ValueError):
+            self.adapter.read(self.client, replace(BINDING, yard_arm=None),
+                request_key="command-1:0", mission_id="mission-1", attempt_id="attempt-1",
+                plan_revision=7, required_arms=("B",), now=NOW)
+        self.assertEqual(self.calls, [])
 
 
 if __name__ == "__main__":
