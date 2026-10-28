@@ -77,8 +77,10 @@ class TransportHttpTests(unittest.TestCase):
             self.assertEqual(row['state'], 'PROPOSED')
             proposal = proposer.trip_proposal_request(intent.request_key)['proposal']
             path = '/api/fleet/trip-proposals/' + proposal['proposal_id'] + '/admit'
+            # The operator console reads the open generation the same way before admitting.
+            control = approver._call('GET', '/api/fleet/dispatch-control', None)
             body = {'expected_proposal_digest': proposal['proposal_digest'],
-                    'expected_generation': proposal['dispatch_generation'] or 0}
+                    'expected_generation': control['generation']}
             with self.assertRaises(HTTPError) as own:
                 proposer._call('POST', path, body)
             self.assertIn(own.exception.code, (403, 409))
