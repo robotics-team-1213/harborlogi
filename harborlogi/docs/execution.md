@@ -67,6 +67,14 @@ API v1.298 지원 서버에서는 `harbor.transport.TripIntent(request_key, cand
 
 `RosyClient.trip_job(id)`와 `trip_request(key)`는 공정 문서 없는 수행 snapshot을 읽는다. 이송 후보·장소만 wire로 보내며 `cargo_id`·recipe·pallet/layer는 새 요청에 넣지 않는다. typed 동작의 추가·도달 사전 검증·중립 팔 동작은 후속 계약이다.
 
+### 이송 제안과 별도 운영자 승인 (D-908, API v1.329)
+
+이 경로는 ROSY API **v1.329**를 요구하며, v1.329는 아직 ROSY main에 없다(고정 브랜치 `docs/neutral-trip-proposal-v1329`). main에 착지하기 전에는 실제 Fleet에 쓰지 않는다. 기존 `submit(..., operator_confirmed=True)` 경로는 그대로다.
+
+`TransportLedger.prepare_proposal(intent)` → `propose(key, client)`는 `POST /api/fleet/trip-proposals`를 정확히 한 번 보낸다(`RosyClient.trip_propose`). 승인(`.../admit`)은 제안자와 다른 명명 운영자의 행위이며 클라이언트에는 admit 호출이 없다. 응답 유실·재시작은 `UNCERTAIN`이고 재전송·새 key는 거절한다. `reconcile_proposal(key, client)`는 원본 key로 `trip_proposal_request(key)`만 읽고, `ADMITTED`가 되면 v1.298 `trip_request(key)`로 만들어진 작업을 대조한다. 상태는 `PROPOSED`(운영자 승인 대기) → `ADMITTED` → `GOAL_CONFIRMED`(이송 수행 사실일 뿐 화물 도착이 아님)이다. wire에는 화물·공정 필드가 없다.
+
+상주 실행기(`HARBOR_TRIP_DESTINATION`에 등록 장소를 설정했을 때만 동작)는 신선한(5분) 공급암 S 퇴피 확인에 묶인 `DepartureIntent`마다 결정적 key `harbor-trip:<intent key>`로 제안을 한 번 만들고, tick마다 원본 key로 대조한다. 신선하지 않으면 제안하지 않고, 불확실하면 HOLD(백오프)하며 새 key를 만들지 않는다. 현장 화면은 승인 대기·승인됨·도착 사실을 보여 준다.
+
 공정 compiler 없는 실제 Fleet simulation HTTP 검증은 아래와 같이 명시 실행한다. 일반 단독 시험의 integration skip과 별개다.
 
 ```text

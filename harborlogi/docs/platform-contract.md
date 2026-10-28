@@ -14,6 +14,8 @@ Harbor 사용자의 계획 확정은 준비·제출을 한 번에 이어서 수�
 
 D-856 첫 중립 이송 흐름은 API reference **v1.298**의 `GET /api/fleet/trip-jobs/{mission_id}`와 원본 `request_key` 조회를 요구한다. 기존 TRIP 접수·simulation gate를 유지하며 recipe/cell 없이 수행 사실을 읽는다. 앱 제출 의도·응답 유실 대조는 [실행 연결](execution.md#중립-이송-의도와-수행-조회-d-856-첫-흐름)에 있다. 아래의 기존 Cell 검증 SHA를 새 경로 검증으로 간주하지 않는다. 새 통합은 [고정 양 끝 SHA 검증](validation/2026-10-24-neutral-transport-http.md)으로 확인했다.
 
+D-908 이송 제안·별도 운영자 승인 경로(`POST/GET /api/fleet/trip-proposals`)는 API reference **v1.329**를 요구한다. v1.329는 아직 ROSY main에 착지하지 않았고 고정 브랜치 `docs/neutral-trip-proposal-v1329`에만 있다. Harbor는 제안·조회만 하며 `admit`은 호출하지 않는다. 사용법은 [실행 연결](execution.md#이송-제안과-별도-운영자-승인-d-908-api-v1329)에 있다.
+
 기준 플랫폼: `584251615d5609a09ebcb52e18af0cbc0c9beaec`, API reference 문서 **v1.292**(후보 이송 요청 포함). 이는 실제 서버 연결 또는 버전 협상을 확인했다는 뜻이 아니다. 정본은 플랫폼 `docs/reference/application-contract-support.md`와 해당 route/schema다.
 
 - 앱 모델·계획·배치·수동 후보 제외는 내부 업무 값이다. ROSY wire 타입·실행 원장·관측 원장을 복제하지 않는다.

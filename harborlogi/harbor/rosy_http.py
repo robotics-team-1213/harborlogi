@@ -92,6 +92,26 @@ class RosyClient:
     def trip_request(self, request_key):
         return self._call("GET", "/api/fleet/trip-jobs?request_key=" + quote(request_key, safe=""), None)
 
+    # D-908 / API v1.329: Harbor only proposes and reads. Admission is a named operator's act in Fleet;
+    # there is deliberately no admit method on this client.
+    def trip_propose(self, candidates, steps, *, request_key):
+        return self._proposal_response(self._call("POST", "/api/fleet/trip-proposals", {
+            "candidate_robot_ids": list(candidates), "request_key": request_key, "steps": list(steps)}))
+
+    def trip_proposal(self, proposal_id):
+        return self._proposal_response(self._call("GET", "/api/fleet/trip-proposals/" + quote(proposal_id, safe=""), None))
+
+    def trip_proposal_request(self, request_key):
+        return self._proposal_response(
+            self._call("GET", "/api/fleet/trip-proposals?request_key=" + quote(request_key, safe=""), None))
+
+    def _proposal_response(self, result):
+        proposal = result.get("proposal") if isinstance(result, dict) else None
+        principal = getattr(self, 'expected_principal', None)
+        if not isinstance(proposal, dict) or principal is not None and proposal.get('proposal_principal_id') != principal:
+            raise ValueError('Fleet proposal principal differs')
+        return result
+
     def propose_arm(self, binding, *, request_key):
         return self._arm_response(self._call("POST", "/api/fleet/arm-transfers/jobs", binding.proposal_request(request_key)))
 

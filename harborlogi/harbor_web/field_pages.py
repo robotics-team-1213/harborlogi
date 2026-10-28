@@ -11,6 +11,7 @@ from django.views.decorators.http import require_http_methods
 
 from harbor_web import forms, services
 from harbor_web.auth import has_role, require_roles
+from harbor_web.trip_proposals import trip_status
 from harbor_web.models import DepartureIntent, FieldConfirmation, FieldEpisode, Order
 from harbor_web.views import form_error, form_page, page, paginate
 
@@ -38,7 +39,7 @@ def episode_status(episode, *, now=None):
         label, action, reason = '이전 회차', '현재 배정 확인', '이 회차는 교체되었습니다. 새 배정의 현장 확인을 사용하세요.'
     else:
         label, action, reason = '현장 확인 대기', '배정·확인 진행 보기', '배정된 현장 담당자의 직접 확인을 기다립니다.'
-    return dict(confirmation=confirmation, departure=departure, confirmation_fresh=fresh,
+    return dict(trip=trip_status(departure) if departure else None, confirmation=confirmation, departure=departure, confirmation_fresh=fresh,
                 confirmation_expires_at=confirmation.observed_at + timedelta(minutes=5) if confirmation else None,
                 needs_new_confirmation=bool(needs_new), can_prepare_departure=fresh and not departure,
                 can_reassign=not departure and episode.state != 'REASSIGNED',

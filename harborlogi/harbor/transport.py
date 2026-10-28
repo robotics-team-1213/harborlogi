@@ -79,6 +79,12 @@ class TransportLedger:
                                "mission_id TEXT,version INTEGER NOT NULL DEFAULT 0)")
             connection.execute("UPDATE transport_intents SET state='UNCERTAIN',version=version+1 "
                                "WHERE state='SUBMITTING'")
+            # D-908 / API v1.329 proposal path: Harbor proposes once; a named operator admits in Fleet.
+            connection.execute("CREATE TABLE IF NOT EXISTS transport_proposals (request_key TEXT PRIMARY KEY, "
+                               "payload TEXT NOT NULL,digest TEXT NOT NULL,state TEXT NOT NULL, proposal_id TEXT, "
+                               "mission_id TEXT,job_status TEXT,version INTEGER NOT NULL DEFAULT 0)")
+            connection.execute("UPDATE transport_proposals SET state='UNCERTAIN',version=version+1 "
+                               "WHERE state='SUBMITTING'")
 
     def _connect(self):
         connection = sqlite3.connect(self.path, timeout=10)
@@ -151,3 +157,99 @@ class TransportLedger:
         if row["state"] == "SUBMITTING":
             raise ValueError("Submission is still pending")
         return self._adopt(row, client.trip_request(key)["job"])
+
+    # --- D-908 proposal path (API v1.329). States: PLANNED, SUBMITTING, UNCERTAIN, PROPOSED (pending operator
+    # admission), ADMITTED (job exists), GOAL_CONFIRMED (transport fact only, never cargo arrival).
+    # This ledger never admits: the client has no admit method and admission is a named operator's act.
+
+    def read_proposal(self, key):
+        with closing(self._connect()) as connection:
+            row = connection.execute("SELECT * FROM transport_proposals WHERE request_key=?", (key,)).fetchone()
+        return None if row is None else dict(row)
+
+    def open_proposal_keys(self):
+        with closing(self._connect()) as connection:
+            return [r[0] for r in connection.execute(
+                "SELECT request_key FROM transport_proposals WHERE state!='GOAL_CONFIRMED' ORDER BY rowid")]
+
+    def prepare_proposal(self, intent):
+        if not isinstance(intent, TripIntent):
+            raise ValueError("Expected an immutable transport intent")
+        payload = _json({"candidates": intent.candidates, "destination": intent.destination, "via": intent.via})
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            old = connection.execute("SELECT digest FROM transport_proposals WHERE request_key=?",
+                                     (intent.request_key,)).fetchone()
+            if old is not None and old["digest"] != intent.digest:
+                raise ValueError("Transport request key conflicts with existing contents")
+            connection.execute("INSERT OR IGNORE INTO transport_proposals(request_key,payload,digest,state) "
+                               "VALUES(?,?,?,'PLANNED')", (intent.request_key, payload, intent.digest))
+
+    def _set_proposal(self, row, state, **columns):
+        names = "".join(f",{name}=?" for name in columns)
+        with closing(self._connect()) as connection, connection:
+            result = connection.execute(
+                f"UPDATE transport_proposals SET state=?,version=version+1{names} WHERE request_key=? AND version=?",
+                (state, *columns.values(), row["request_key"], row["version"]))
+            if result.rowcount != 1:
+                raise ValueError("Transport proposal changed while the response was pending; reconcile again")
+
+    def _check_proposal(self, intent, proposal):
+        if not isinstance(proposal, dict):
+            raise ValueError("Fleet trip proposal does not match the saved intent")
+        admitted = proposal.get("status") == "ADMITTED"
+        if (proposal.get("request_key") != intent.request_key
+                or proposal.get("request_digest") != intent.digest
+                or proposal.get("candidate_robot_ids") != list(intent.candidates)
+                or proposal.get("steps") != intent.steps or proposal.get("status") not in {"PROPOSED", "ADMITTED"}
+                or admitted != all(proposal.get(k) is not None for k in ("approved_by", "mission_id", "dispatch_generation"))
+                or admitted and proposal["approved_by"] == proposal.get("proposal_principal_id")):
+            raise ValueError("Fleet trip proposal does not match the saved intent")
+        identifier(proposal.get("proposal_id"))
+        return proposal
+
+    def propose(self, key, client):
+        """Send the proposal exactly once. Any failure leaves UNCERTAIN; recover with reconcile_proposal(key)."""
+        row = self.read_proposal(key)
+        if row is None:
+            raise ValueError("Unknown transport proposal")
+        if row["state"] != "PLANNED":
+            raise ValueError("Proposal was already sent or is uncertain; reconcile without resending")
+        self._set_proposal(row, "SUBMITTING")
+        row = {**row, "version": row["version"] + 1}
+        intent = self._intent(row)
+        try:
+            sent = client.trip_propose(intent.candidates, intent.steps, request_key=key)["proposal"]
+            self._check_proposal(intent, sent)
+            return self._adopt_proposal(row, intent, client)
+        except BaseException:
+            with closing(self._connect()) as connection, connection:
+                connection.execute("UPDATE transport_proposals SET state='UNCERTAIN',version=version+1 "
+                                   "WHERE request_key=? AND version=? AND state='SUBMITTING'", (key, row["version"]))
+            raise
+
+    def reconcile_proposal(self, key, client):
+        """Read the original key only: proposal first, then the admitted job through the v1.298 key lookup."""
+        row = self.read_proposal(key)
+        if row is None:
+            raise ValueError("Unknown transport proposal")
+        if row["state"] in ("PLANNED", "SUBMITTING"):
+            raise ValueError("Proposal has not been sent; propose it or wait for the pending call")
+        return self._adopt_proposal(row, self._intent(row), client)
+
+    def _adopt_proposal(self, row, intent, client):
+        proposal = self._check_proposal(intent, client.trip_proposal_request(row["request_key"])["proposal"])
+        if row["proposal_id"] not in (None, proposal["proposal_id"]):
+            raise ValueError("Fleet proposal identity changed")
+        if proposal["status"] == "PROPOSED":
+            if row["state"] in ("ADMITTED", "GOAL_CONFIRMED"):
+                raise ValueError("Fleet proposal regressed after admission")
+            self._set_proposal(row, "PROPOSED", proposal_id=proposal["proposal_id"])
+        else:
+            job = intent.check(client.trip_request(row["request_key"])["job"])
+            if job["mission_id"] != proposal["mission_id"]:
+                raise ValueError("Admitted proposal and trip job identify different executions")
+            self._set_proposal(row, "GOAL_CONFIRMED" if job["status"] == "GOAL_CONFIRMED" else "ADMITTED",
+                               proposal_id=proposal["proposal_id"], mission_id=job["mission_id"],
+                               job_status=job["status"])
+        return self.read_proposal(row["request_key"])

@@ -22,7 +22,10 @@ from django.db import close_old_connections
 from django.utils import timezone
 
 from harbor.process import ArmTransferBinding
+from harbor.transport import TransportLedger, TripIntent
 from harbor_web import commands
+from harbor_web.models import DepartureIntent
+from harbor_web.trip_proposals import FRESH, destination, trip_key
 from harbor_web.coordination import queue_lock
 
 # DISPATCHING survives only a crash between the state save and the first proposal;
@@ -148,6 +151,48 @@ def _advance(command, registry, *, now, evidence):
         return command.state
 
 
+def _advance_trips(registry, *, now, interval):
+    """D-908: one neutral trip proposal per fresh departure intent, then reconcile by the original key.
+
+    Never admits (the client has no admit call), never mints a second key, holds on any uncertainty.
+    """
+    place = destination()
+    if not place:
+        return {}
+    ledger = getattr(registry, 'transport', None)
+    if ledger is None:
+        ledger = registry.transport = TransportLedger(registry.config['path'])
+    results, seen = {}, set()
+
+    def run(key, action):
+        seen.add(key)
+        if not _eligible('trip:' + key, now):
+            results[key] = 'BACKOFF'
+            return
+        try:
+            row = action()
+            results[key] = row['state']
+            _record('trip:' + key, False, interval)
+        except Exception as error:
+            results[key] = f'HOLD: {type(error).__name__}'
+            _record('trip:' + key, True, interval)
+
+    fresh = DepartureIntent.objects.filter(confirmation__observed_at__gte=now - FRESH,
+                                           confirmation__observed_at__lte=now).order_by('pk')
+    for departure in fresh:
+        key = trip_key(departure)
+        row = ledger.read_proposal(key)
+        if row is None or row['state'] == 'PLANNED':
+            def send(key=key, departure=departure):
+                ledger.prepare_proposal(TripIntent(key, (departure.vehicle_id,), place))
+                return ledger.propose(key, registry.client)
+            run(key, send)
+    for key in ledger.open_proposal_keys():
+        if key not in seen and ledger.read_proposal(key)['state'] != 'PLANNED':
+            run(key, lambda key=key: ledger.reconcile_proposal(key, registry.client))
+    return results
+
+
 def tick(*, evidence=None, now=None, registry=None):
     """One bounded pass over active commands. Returns a per-command outcome summary."""
     from harbor_web.runtime import execution_block_reason
@@ -174,6 +219,10 @@ def tick(*, evidence=None, now=None, registry=None):
         except Exception as error:
             results[command.pk] = f'TICK_ERROR: {type(error).__name__}'
             _record(command.pk, True, interval)
+    try:
+        results.update({'trip:' + key: value for key, value in _advance_trips(registry, now=now, interval=interval).items()})
+    except Exception as error:
+        results['trip'] = f'TICK_ERROR: {type(error).__name__}'
     return dict(ran=True, reason='', results=results)
 
 
