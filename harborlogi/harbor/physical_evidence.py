@@ -75,7 +75,7 @@ class PhysicalEvidenceAdapter:
         if not required_arms or not set(required_arms) <= set(by_arm):
             raise ValueError("Every related arm needs an installed measurement binding")
         primary = (binding.workcell_id, binding.instance_id)
-        if binding.yard_arm is not None:
+        if binding.yard_arm:
             installed = by_arm.get(binding.yard_arm)
             if installed is None or (installed.workcell_id, installed.instance_id) != primary:
                 raise ValueError("Yard arm differs from the transfer's installed owner")

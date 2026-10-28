@@ -166,12 +166,15 @@ class PhysicalEvidenceTests(unittest.TestCase):
 
     def test_unnamed_binding_primary_owner_must_belong_to_required_arms(self):
         from harbor.physical_evidence import RetreatBinding
+        unnamed = replace(BINDING, yard_arm="")
+        args = dict(request_key="command-1:0", mission_id="mission-1", attempt_id="attempt-1",
+                    plan_revision=7, required_arms=("A",), now=NOW)
+        self.assertIsNotNone(self.adapter.read(self.client, unnamed, **args))
+        self.calls.clear()
         self.adapter = replace(self.adapter, arms=(self.adapter.arms[0],
             RetreatBinding("B", "cell-1", "arm-b", "shared-zone", ("joint1", "joint2"))))
         with self.assertRaises(ValueError):
-            self.adapter.read(self.client, replace(BINDING, yard_arm=None),
-                request_key="command-1:0", mission_id="mission-1", attempt_id="attempt-1",
-                plan_revision=7, required_arms=("B",), now=NOW)
+            self.adapter.read(self.client, unnamed, **{**args, "required_arms": ("B",)})
         self.assertEqual(self.calls, [])
 
 
