@@ -8,8 +8,8 @@ It never submits a new request key for an uncertain outcome, never admits or
 self-approves, and leaves CANCEL_PENDING commands and operator decisions untouched.
 Web requests stay read-only toward progression.
 
-Production P1 runs without an evidence provider: stages reach goal-confirmed WAITING
-and stay there until P2 connects authenticated sources. Start is explicit: set
+Without a configured evidence provider stages reach goal-confirmed WAITING and
+stay there. Intake or immutable physical step evidence is explicit opt-in. Start: set
 HARBOR_EXECUTOR_ENABLED=1 in the serving process. When dev autoreload spawns a second
 loop, the SQLite writer lease leaves the loser idling harmlessly.
 """
@@ -178,12 +178,13 @@ def tick(*, evidence=None, now=None, registry=None):
 
 
 def _loop_evidence():
-    """The production provider (P2): intake-backed when the deployment opts in."""
-    if os.environ.get('HARBOR_EXECUTOR_EVIDENCE') != 'intake':
+    """Use only the deployment's explicitly configured evidence provider."""
+    kind = os.environ.get('HARBOR_EXECUTOR_EVIDENCE')
+    if kind not in ('intake', 'physical'):
         return None
     try:
-        from harbor_web.evidence import intake_provider
-        return intake_provider()
+        from harbor_web.evidence import intake_provider, physical_provider
+        return physical_provider() if kind == 'physical' else intake_provider()
     except Exception:
         return None
 
