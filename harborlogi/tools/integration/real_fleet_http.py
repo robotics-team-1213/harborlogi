@@ -42,6 +42,7 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--transport-only', action='store_true', help='Verify neutral TRIP without the Cell compiler')
     mode.add_argument('--arm-only', action='store_true', help='Verify neutral ARM with an independent observer and real UDS')
+    mode.add_argument('--evidence-only', action='store_true', help='Verify immutable physical evidence and single-move business confirmation')
     mode.add_argument('--web-arm-only', action='store_true', help='Verify authenticated Django over actual Fleet HTTP')
     parser.add_argument('--app-python', type=Path, help='Isolated Harbor/web Python interpreter')
     args = parser.parse_args(argv)
@@ -50,21 +51,24 @@ def main(argv=None):
     app_root = Path(__file__).resolve().parents[2]
     app_sha = app_checkout(app_root)
     platform_sha = verify_checkout(args.platform_root, args.platform_sha)
+    arm_mode = args.arm_only or args.web_arm_only or args.evidence_only
     sys.path.insert(0, str(app_root))
     # Loaded by path only here: the harness needs the platform's test dependencies.
-    source = Path(__file__).resolve().parent / ('arm_fleet_harness.py' if (args.arm_only or args.web_arm_only) else 'fleet_harness.py')
+    source = Path(__file__).resolve().parent / ('arm_fleet_harness.py' if arm_mode else 'fleet_harness.py')
     spec = importlib.util.spec_from_file_location('harbor_fleet_harness', source)
     harness = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(harness)
     # Windows keeps the in-process Fleet SQLite file open after stop; a leftover temp dir must not mask the result.
     with tempfile.TemporaryDirectory(prefix='harbor-http-integration-', ignore_cleanup_errors=True) as temporary:
         request_key_path = Path(temporary) / 'request-key' if args.web_arm_only else None
-        fleet = (harness.ArmFleet(root=args.platform_root, workdir=Path(temporary) / 'fleet', request_key_path=request_key_path) if (args.arm_only or args.web_arm_only) else
+        fleet = (harness.ArmFleet(root=args.platform_root, workdir=Path(temporary) / 'fleet', request_key_path=request_key_path) if arm_mode else
                  harness.RealFleet(root=args.platform_root, workdir=Path(temporary) / 'fleet', transport_only=args.transport_only))
+        if args.evidence_only:
+            fleet.include_joint_evidence = True
         try:
             fleet.start()
             ref, artifact = {}, None
-            if not args.transport_only and not args.arm_only and not args.web_arm_only:
+            if not args.transport_only and not arm_mode:
                 ref = next(iter(fleet.transfers.values()))
                 with fleet.client() as client:
                     response = client.post('/api/fleet/cell-app/compile', json=ref)
@@ -81,13 +85,20 @@ def main(argv=None):
                 'candidates': [harness.ROBOT], 'steps': [{'to': 'inbound'}],
                 'alternate_steps': [{'to': 'outbound'}],
             }
-            if args.arm_only or args.web_arm_only:
+            if arm_mode:
                 config = {'schema': 'harbor.arm-http-test/1', 'simulation': True, 'origin': fleet.url,
                     'operator': fleet.tokens['operator'], 'viewer': fleet.tokens['viewer'],
                     'platform_sha': platform_sha, 'app_sha': app_sha,
                     'binding': {'cargo_id': 'synthetic-outbound', 'source': 'yard', 'destination': 'stand',
                         'workcell_id': harness.WORKCELL, 'instance_id': harness.INSTANCE, 'object_ref': 'object-1',
                         'source_ref': 'source', 'target_ref': 'target'}}
+            if args.evidence_only:
+                policy = fleet.app.state.arm_transfer_job_store.installation.policy
+                config['schema'] = 'harbor.physical-evidence-http-test/1'
+                config['evidence'] = dict(placement_source=policy.producer_id, retreat_source='fleet-closure',
+                    policy_digest=policy.digest, arms=[dict(arm=arm, workcell_id=participant.workcell_id,
+                        instance_id=participant.instance_id, zone_id=policy.zone_resource_ids[0],
+                        joint_names=['joint1', 'joint2']) for arm, participant in zip(('A', 'B'), policy.participants)])
             if args.web_arm_only:
                 config['schema'] = 'harbor.web-arm-http-test/1'
                 config['request_key_path'] = str(request_key_path)
@@ -98,7 +109,8 @@ def main(argv=None):
             env = dict(os.environ, HARBOR_INTEGRATION='1', HARBOR_INTEGRATION_CONFIG=str(path))
             env.pop('PYTHONPATH', None)
             print(f'Platform {platform_sha}; Harbor (with harness) {app_sha}', flush=True)
-            pattern = 'product_web_http.py' if args.web_arm_only else 'arm_http.py' if (args.arm_only or args.web_arm_only) else 'transport_http.py' if args.transport_only else 'test_real_fleet_http.py'
+            pattern = ('physical_evidence_http.py' if args.evidence_only else 'product_web_http.py' if args.web_arm_only
+                       else 'arm_http.py' if arm_mode else 'transport_http.py' if args.transport_only else 'test_real_fleet_http.py')
             return subprocess.run([str(args.app_python) if args.app_python else sys.executable, '-m', 'unittest', 'discover', '-s', 'tests/integration', '-p', pattern, '-v'],
                                   cwd=app_root, env=env, timeout=180).returncode
         finally:
