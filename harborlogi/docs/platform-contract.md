@@ -1,5 +1,7 @@
 # 플랫폼 연결 기준
 
+D-915/API **v1.330** 후보 연결은 플랫폼 `0a84b177c7fc051055feac32780c654b249310e7` 기준으로 개발 중이다. `GET /api/fleet/arm-transfers/jobs/{mission_id}/physical-evidence`에서 원래 저장된 canonical document와 receipt를 함께 읽는다. Harbor는 SHA 결속·원본 측정 시각·설치된 A/B 소유자/관절 순서/zone 대응을 검사하고 기존 단계 확인 근거로만 사용한다. 최종 업무 완료 근거는 생성하지 않는다. 설정과 한계는 [실행 연결](execution.md#원본-물리-근거-provider-d-915)에 있다. 이 후보 pin은 아래 과거 수용 pin이나 운영 설치 상태를 갱신하지 않는다.
+
 사람 로그인·기계 서비스·독립 승인·관측 신뢰의 정본은 [ADR0015](adr/0015-service-identity-and-independent-integration.md)와 [설계27](design/27-independent-integration-and-service-trust.md)이다. Harbor 서버는 전용 service 역할과 고정 principal을 매 API 호출 전에 확인한다. 기존 UI 연결 검사 결과는 실행 권한 캐시가 아니다. 이 보강은 아래의 플랫폼 수용 pin이나 운영 설치 상태를 자동으로 변경하지 않는다.
 
 설정에서 Fleet 주소·신원을 관리하고 실제 신원/ARM 읽기 계약을 확인하는 흐름은 [설계25](design/25-fleet-connection-bridge.md)를 따른다. 설정 성공·조회 API 지원·작업 제안 권한·운영 근거 수용은 별개다. 토큰은 서버 환경에만 보관한다.
