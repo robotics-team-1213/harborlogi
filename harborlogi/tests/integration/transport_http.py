@@ -57,3 +57,39 @@ class TransportHttpTests(unittest.TestCase):
             self.assertIsNotNone(job['steps'][0]['attempt_id'])
             self.assertEqual(restarted.read(intent.request_key)['state'], 'ACKNOWLEDGED')
             self.assertFalse({'recipe_digest', 'cell_digest', 'process_artifact_digest'} & job.keys())
+
+    def test_proposal_waits_for_a_different_operator_then_arrives(self):
+        """D-908 / v1.329: Harbor proposes once, never admits; another named operator admits."""
+        config = json.loads(Path(os.environ['HARBOR_INTEGRATION_CONFIG']).read_text(encoding='utf-8'))
+        proposer = RosyClient(config['origin'], config['operator'])
+        approver = RosyClient(config['origin'], config['approver'])
+        intent = TripIntent('harbor-trip:' + uuid4().hex, tuple(config['candidates']), config['steps'][0]['to'])
+        class LostResponse:
+            def trip_propose(self, candidates, steps, *, request_key):
+                proposer.trip_propose(candidates, steps, request_key=request_key)
+                raise TimeoutError('synthetic response loss after server commit')
+        with tempfile.TemporaryDirectory() as folder:
+            ledger = TransportLedger(Path(folder) / 'business.sqlite3')
+            ledger.prepare_proposal(intent)
+            with self.assertRaises(TimeoutError):
+                ledger.propose(intent.request_key, LostResponse())
+            row = ledger.reconcile_proposal(intent.request_key, proposer)
+            self.assertEqual(row['state'], 'PROPOSED')
+            proposal = proposer.trip_proposal_request(intent.request_key)['proposal']
+            path = '/api/fleet/trip-proposals/' + proposal['proposal_id'] + '/admit'
+            body = {'expected_proposal_digest': proposal['proposal_digest'],
+                    'expected_generation': proposal['dispatch_generation'] or 0}
+            with self.assertRaises(HTTPError) as own:
+                proposer._call('POST', path, body)
+            self.assertIn(own.exception.code, (403, 409))
+            self.assertEqual(ledger.reconcile_proposal(intent.request_key, proposer)['state'], 'PROPOSED')
+            approver._call('POST', path, body)
+            deadline = time.monotonic() + 30
+            row = ledger.reconcile_proposal(intent.request_key, proposer)
+            while row['state'] != 'GOAL_CONFIRMED':
+                self.assertIn(row['state'], ('ADMITTED', 'PROPOSED'))
+                if time.monotonic() > deadline:
+                    self.fail('The admitted trip did not arrive within 30 seconds')
+                time.sleep(.1)
+                row = ledger.reconcile_proposal(intent.request_key, proposer)
+            self.assertEqual(approver.trip_proposal(proposal['proposal_id'])['proposal']['approved_by'] is not None, True)
