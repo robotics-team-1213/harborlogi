@@ -1,6 +1,6 @@
-{% extends 'base.html' %}{% block title %}{{ command.plan.order.cargo.code }} 실행·대조{% endblock %}{% block content %}
-<p><a href="/requests/{{ command.order_id }}/">{{ command.plan.order.cargo.code }} 반출 업무</a> / <a href="/work/">실행·대조</a> #{{ command.pk }}</p>
-<div class="page-head"><div><span class="eyebrow">Harbor → ROSY → Harbor</span><h1>{{ command.plan.order.cargo.code }} 실행·대조</h1><p>제출, 독립 승인, 수행 결과와 업무 완료를 각각 확인합니다.</p></div><span class="badge {{ command.state }}">{{ pipeline.command_label }}</span></div>
+{% extends 'base.html' %}{% block title %}{{ command.plan.order.cargo.code|default:'재배치' }} 실행·대조{% endblock %}{% block content %}
+<p><a href="/requests/{{ command.order_id }}/">{{ command.plan.order.cargo.code|default:'재배치' }} 반출 업무</a> / <a href="/work/">실행·대조</a> #{{ command.pk }}</p>
+<div class="page-head"><div><span class="eyebrow">Harbor → ROSY → Harbor</span><h1>{{ command.plan.order.cargo.code|default:'재배치' }} 실행·대조</h1><p>제출, 독립 승인, 수행 결과와 업무 완료를 각각 확인합니다.</p></div><span class="badge {{ command.state }}">{{ pipeline.command_label }}</span></div>
 {% if gate_reason %}<div class="notice">{{ gate_reason }}</div>{% endif %}
 <section class="decision-panel" aria-labelledby="next-action-heading"><h2 id="next-action-heading">지금 할 일</h2><p>{{ pipeline.primary.note }}</p>
 {% if can_operate and pipeline.primary.action == 'submit' or can_operate and pipeline.primary.action == 'reconcile' %}<form method="post" data-command>{% csrf_token %}<input type="hidden" name="action" value="{{ pipeline.primary.action }}"><input type="hidden" name="expected_version" value="{{ command.version }}"><button type="submit">{{ pipeline.primary.label }}</button></form>

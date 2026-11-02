@@ -3,7 +3,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from harbor.model import YARD_ARMS, aware_time
-from harbor.spatial import CargoShape, Placement, SpatialPolicy, SpatialSnapshot, validate_schedule
+from harbor.spatial import (CargoShape, Placement, SpatialPolicy, SpatialSnapshot, order_relation,
+                           validate_schedule)
 
 
 PLACEMENT_CANDIDATE_LIMIT = 20_000
@@ -118,16 +119,11 @@ def plan_placement(snapshot: SpatialSnapshot, incoming: CargoShape, policy: Spat
                         earlier = []
                         unknown = []
                         for cargo in sorted(lower):
-                            rank = schedule.get(cargo)
-                            if rank is None:
-                                unknown.append(cargo)
-                            elif incoming_rank is None or rank[0] < incoming_rank[0]:
+                            relation = order_relation(schedule.get(cargo), incoming_rank)
+                            if relation == 'blocked':
                                 earlier.append(cargo)
-                            elif rank[0] == incoming_rank[0]:
-                                if rank[1] is None or incoming_rank[1] is None:
-                                    unknown.append(cargo)
-                                elif rank[1] < incoming_rank[1]:
-                                    earlier.append(cargo)
+                            elif relation == 'unknown':
+                                unknown.append(cargo)
                         rationale = ('DESTINATION_FOOTPRINT_REACH_VERIFIED',)
                         if incoming_rank is None:
                             rationale += ('INCOMING_OUTBOUND_ORDER_UNKNOWN',)

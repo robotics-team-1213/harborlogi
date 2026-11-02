@@ -88,8 +88,9 @@ class PlacementTests(unittest.TestCase):
         unknown = self.plan(source, policy, schedule={'later': (2, 1)})
         self.assertEqual(unknown.recommendation.column, 1)
         self.assertIn('INCOMING_OUTBOUND_ORDER_UNKNOWN', unknown.rationale)
+        # Same group without a full sequence is free, not unknown (design 32 Q4).
         any_group = self.plan(source, policy, schedule={'incoming': (1, None), 'later': (1, 1)})
-        self.assertEqual(any_group.score[1], 1)
+        self.assertEqual(any_group.score[1], 0)
 
     def test_distinct_lower_cargo_is_counted_once_across_cells_and_levels(self):
         source, policy = scene(rows=1, columns=2, levels=3,

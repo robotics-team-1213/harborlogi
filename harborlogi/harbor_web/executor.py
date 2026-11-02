@@ -58,6 +58,15 @@ def _record(command_id, failed, interval):
         _failures[command_id] = (count + 1, timezone.now() + timezone.timedelta(seconds=delay))
 
 
+def _rearrange_when_idle(now):
+    """Design 32 R2: the idle executor asks whether a standing authorization allows a rearrangement."""
+    from harbor_web import rearrangement
+    try:
+        rearrangement.auto_check(now)
+    except Exception:
+        pass  # A failed check leaves no Command; the next idle tick retries.
+
+
 def tick(*, evidence=None, now=None, registry=None):
     """One bounded pass over active commands. Returns a per-command outcome summary."""
     from harbor_web.runtime import execution_block_reason
@@ -84,6 +93,8 @@ def tick(*, evidence=None, now=None, registry=None):
         except Exception as error:
             results[command.pk] = f'TICK_ERROR: {type(error).__name__}'
             _record(command.pk, True, interval)
+    if not active:
+        _rearrange_when_idle(now)
     return dict(ran=True, reason='', results=results)
 
 

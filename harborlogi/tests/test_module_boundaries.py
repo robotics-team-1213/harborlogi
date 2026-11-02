@@ -8,6 +8,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ModuleBoundaryTests(unittest.TestCase):
+    def test_domain_does_not_import_web_framework(self):
+        for path in (ROOT / 'harbor').rglob('*.py'):
+            for node in ast.walk(ast.parse(path.read_text(encoding='utf8'))):
+                names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
+                    [node.module or ''] if isinstance(node, ast.ImportFrom) else []
+                for name in names:
+                    self.assertNotIn(name.split('.')[0], ('django', 'harbor_web'), path.name)
+
     def test_executor_only_schedules_application_commands(self):
         tree = ast.parse((ROOT / 'harbor_web/executor.py').read_text(encoding='utf8'))
         for node in ast.walk(tree):

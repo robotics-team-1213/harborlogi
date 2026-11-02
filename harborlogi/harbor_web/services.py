@@ -323,13 +323,13 @@ def _queue_policy(order):
 
 
 def request_snapshot(order):
-    return dict(id=order.pk, cargo_id=order.cargo_id, cargo_code=order.cargo.code, kind=order.kind,
+    return dict(id=order.pk, cargo_id=order.cargo_id, cargo_code=order.cargo.code if order.cargo_id else None, kind=order.kind,
         priority_group=order.priority_group, sequence=order.sequence, tie_policy=order.tie_policy,
         note=order.note, version=order.version)
 
 
 def queue_snapshot():
-    return [request_snapshot(order) for order in Order.objects.select_related('cargo').order_by('pk')]
+    return [request_snapshot(order) for order in Order.objects.exclude(kind='REARRANGE').select_related('cargo').order_by('pk')]
 
 
 @serialized
@@ -375,7 +375,8 @@ def update_order(actor, *, order_id, expected_version, priority_group, sequence,
 
 
 def queue_digest():
-    rows = list(Order.objects.order_by('pk').values('id', 'cargo_id', 'kind', 'priority_group', 'sequence', 'tie_policy', 'note', 'version'))
+    # REARRANGE orders are not queue entries: they must not invalidate other plans.
+    rows = list(Order.objects.exclude(kind='REARRANGE').order_by('pk').values('id', 'cargo_id', 'kind', 'priority_group', 'sequence', 'tie_policy', 'note', 'version'))
     return hashlib.sha256(json.dumps(rows, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -430,7 +431,7 @@ def _installed_arm_candidates():
     return candidates or None
 
 
-def _calculate_plan(actor, order, observation, *, now=None, trigger='manual', input_digest=None, hold_reason=None):
+def _calculate_plan(actor, order, observation, *, now=None, trigger='manual', input_digest=None, hold_reason=None, rearrange=None):
     """Trusted calculator; callers hold the serialized transaction and authorize the event."""
     current = timezone.now() if now is None else now
     _domain(lambda: aware_time(current))
@@ -453,6 +454,10 @@ def _calculate_plan(actor, order, observation, *, now=None, trigger='manual', in
             incoming_shape = CargoShape(order.cargo.code, footprint.length_cells, footprint.pk)
             proposal = _domain(lambda: plan_placement(yard, incoming_shape,
                 spatial_policy(observation.condition.payload), _outbound_schedule(), now=current, reserved_cells=reserved_cells))
+    elif order.kind == 'REARRANGE':
+        from harbor_web.rearrangement import rearrange_proposal
+        proposal = rearrange_proposal(observation, rearrange, now=current) if spatial else OutboundProposal(
+            'HOLD', 'SPATIAL_OBSERVATION_REQUIRED', yard.revision)
     elif order.kind == 'INBOUND':
         proposal = OutboundProposal('HOLD', 'INBOUND_PLANNER_NOT_AVAILABLE', yard.revision)
     elif Order.objects.filter(kind='OUTBOUND', priority_group__lt=order.priority_group).exists() or (
@@ -492,6 +497,10 @@ def _calculate_plan(actor, order, observation, *, now=None, trigger='manual', in
         result['input_digest'] = planning_digest(order, observation, now=current)
     if spatial:
         result['model'] = 'grid-placement-v1'
+        if order.kind == 'REARRANGE':
+            from harbor_web.rearrangement import plan_record
+            result['plan_kind'] = 'rearrangement'
+            result['rearrangement'] = plan_record(proposal, rearrange)
         if order.kind == 'INBOUND':
             result['plan_kind'] = 'inbound-placement'
             result['required_completion'] = ['inbound_placed_at_target', 'arms_retreated']

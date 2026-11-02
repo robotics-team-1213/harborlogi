@@ -1,0 +1,27 @@
+name: mirror-to-course
+
+# 팀 저장소 main이 정본이다. 병합될 때마다 과정 저장소 main을 같은 커밋으로 맞춘다.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    # 과정 저장소에 복사된 이 파일은 돌지 않는다.
+    if: github.repository == 'robotics-team-1213/harborlogi'
+    runs-on: ubuntu-22.04
+    env:
+      TOKEN: ${{ secrets.COURSE_REPO_TOKEN }}
+    steps:
+      - if: env.TOKEN == ''
+        run: echo "::error::COURSE_REPO_TOKEN secret is missing" && exit 1
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      # force 없이 push: 과정 저장소에만 생긴 커밋이 있으면 실패해서 드러난다.
+      - run: git push "https://x-access-token:${TOKEN}@github.com/kernel-robot-8th/kernel-robot-repo-2.git" HEAD:refs/heads/main

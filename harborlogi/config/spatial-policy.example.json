@@ -16,5 +16,5 @@
     {"area_id": "temp", "rows": 1, "columns": 3, "levels": 3},
     {"area_id": "stand", "rows": 1, "columns": 3, "levels": 1}
   ],
-  "spatial_moves": [["yard", "temp"], ["temp", "yard"], ["yard", "stand"]]
+  "spatial_moves": [["yard", "yard"], ["yard", "temp"], ["temp", "yard"], ["yard", "stand"]]
 }

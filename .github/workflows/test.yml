@@ -44,5 +44,5 @@ jobs:
       - run: python -m pip install '.[web]'
       - run: python -m django test harbor_web.tests --settings=harbor_web.settings --verbosity 1
       - run: python -m django makemigrations --check --dry-run --settings=harbor_web.settings
-      - run: node tests/map-editor.test.mjs && node tests/yard-model.test.mjs && node tests/yard-draft.test.mjs && node tests/yard-selection.test.mjs
+      - run: for t in tests/*.test.mjs; do node "$t" || exit 1; done
       - run: python tools/design_tokens.py --check

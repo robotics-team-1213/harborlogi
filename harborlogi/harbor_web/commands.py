@@ -16,7 +16,8 @@ from django.utils import timezone
 
 from harbor.ownership import WriterLease
 from harbor.ledger import ReadOnlyLedger, plan_payload
-from harbor.process import ArmTransferBinding, SpatialPlacementBinding, anchor_address, bind_plan, load_bindings
+from harbor.process import (ArmTransferBinding, SimulationCellTemplate, SpatialPlacementBinding, anchor_address,
+                            bind_plan, load_bindings)
 from harbor.outbound import CargoMove, OutboundProposal
 from harbor.rosy_http import RosyClient
 from harbor.execution import read_arm_execution, validate_arm_execution, cancel_execution
@@ -77,12 +78,29 @@ def _matching_spatial(plan, installed):
     return matches[0] if len(matches) == 1 else None
 
 
+def _rearrangement(plan, installed):
+    """Temporary simulation binding of an R2 plan: (moves, completing move), or None.
+
+    The ledger completes on one cargo at its final place, so one cargo must move
+    exactly once; its last destination stands in for the outbound stand.
+    """
+    templates = [b for b in installed if isinstance(b, SimulationCellTemplate)]
+    if len(templates) != 1 or plan.result.get('status') != 'READY' or not plan.result.get('moves'):
+        return None
+    moves = templates[0].moves(plan.result['moves'])
+    once = [m for m in moves if sum(o.cargo_id == m.cargo_id for o in moves) == 1]
+    return (moves, once[-1]) if once else None
+
+
 def _spatial_from_path(plan, path):
     if not path:
         return None
     try:
         with open(path, encoding='utf-8') as source:
-            return _matching_spatial(plan, load_bindings(json.load(source)))
+            installed = load_bindings(json.load(source))
+        if plan.result.get('plan_kind') == 'rearrangement':
+            return _rearrangement(plan, installed)
+        return _matching_spatial(plan, installed)
     except (OSError, ValueError, KeyError, TypeError):
         return None
 
@@ -93,6 +111,11 @@ def _spatial_binding(plan, config):
 
 def _bound(plan, config):
     bindings = _bindings(config)
+    if plan.result.get('plan_kind') == 'rearrangement':
+        bound = _rearrangement(plan, bindings)
+        if bound is None:
+            raise ValueError('No simulation cell template binds this rearrangement')
+        return bound[0]
     if plan.result.get('model') == 'grid-placement-v1':
         spatial = _matching_spatial(plan, bindings)
         if spatial is None:
@@ -100,7 +123,8 @@ def _bound(plan, config):
         return (spatial.move(),)
     proposal = OutboundProposal(plan.result['status'], plan.result['reason'], plan.result['source_revision'],
                                tuple(CargoMove(**move) for move in plan.result['moves']))
-    return bind_plan(proposal, tuple(b for b in bindings if not isinstance(b, SpatialPlacementBinding)))
+    return bind_plan(proposal, tuple(b for b in bindings
+                                     if not isinstance(b, (SpatialPlacementBinding, SimulationCellTemplate))))
 
 
 @serialized
@@ -241,7 +265,12 @@ def prepare_command(actor, *, plan_id, expected_version):
         if not capability(plan)['enabled']:
             Audit.objects.create(actor=actor, action='command.blocked', object_type='Plan', object_id=str(plan.pk))
             raise ValidationError('Execution inputs unavailable.')
-        if plan.result.get('model') == 'grid-placement-v1':
+        if plan.result.get('plan_kind') == 'rearrangement':
+            moves, completing = _rearrangement(plan, _bindings(registry.config))
+            body = dict(moves=[m.__dict__ for m in moves], revision=plan.result['source_revision'],
+                        outbound_id=completing.cargo_id, outbound_stand=completing.destination,
+                        move_arms=[[m.yard_arm] for m in moves])
+        elif plan.result.get('model') == 'grid-placement-v1':
             spatial = _spatial_binding(plan, registry.config)
             body = dict(moves=[spatial.move().__dict__], revision=plan.result['source_revision'],
                         outbound_id=plan.order.cargo.code, outbound_stand=spatial.anchor(),
@@ -467,6 +496,10 @@ def advance_command(command, registry, *, evidence=None):
             if row['state'] == 'PLANNED':
                 if command.state not in PROPOSE_STATES:
                     return command.state  # An uncertain prior stage must reconcile first.
+                if row['step_index'] and command.order.kind == 'REARRANGE':
+                    from harbor_web.rearrangement import outbound_pending
+                    if outbound_pending():
+                        return command.state  # Outbound first (design 32): no further R2 move starts.
                 return _submit_stage(command, registry, command.actor).state
             if row['state'] in ('WAITING', 'HOLD'):
                 command = reconcile_command(command.actor, command_id=command.pk,

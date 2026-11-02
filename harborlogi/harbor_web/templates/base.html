@@ -19,6 +19,7 @@
 {% include 'nav_item.html' with href='/requests/' key='cargo' label='화물·요청' hint='화물 등록과 업무 지시' %}
 {% include 'nav_item.html' with href='/inventory/' key='inventory' label='재고·관측' hint='원본 배치와 설치 기준' %}
 {% include 'nav_item.html' with href='/work/' key='work' label='실행·대조' hint='인계 상태와 원본 근거' %}
+{% include 'nav_item.html' with href='/rearrangement/' key='rearrangement' label='자동 재배치' hint='허용 범위와 실행 기록' %}
 {% include 'nav_item.html' with href='/records/' key='records' label='기록·검증' hint='이력과 비교 결과' %}{% endif %}
 {% if can_field or can_operate or can_admin %}{% include 'nav_item.html' with href='/field/' key='field' label='현장 확인' hint='회차별 사실 확인' %}{% endif %}
 {% if can_admin %}{% include 'nav_item.html' with href='/settings/' key='settings' label='설정·계정' hint='팀 역할과 구역 맵' utility=True %}{% endif %}

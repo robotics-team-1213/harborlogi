@@ -63,7 +63,7 @@ def overview(request):
     issues = list(Command.objects.filter(state__in=['UNKNOWN', 'DISPATCHING', 'CANCEL_PENDING', 'BLOCKED']).select_related('plan__order__cargo').order_by('created_at')[:12])
     issue_ids = [command.plan.order_id for command in issues]
     requests = [command.plan.order for command in issues]
-    requests += list(Order.objects.exclude(pk__in=issue_ids).select_related('cargo').order_by('priority_group', 'sequence', 'id')[:12 - len(requests)])
+    requests += list(Order.objects.exclude(kind='REARRANGE').exclude(pk__in=issue_ids).select_related('cargo').order_by('priority_group', 'sequence', 'id')[:12 - len(requests)])
     executions = {command.plan.order_id: command for command in Command.objects.filter(plan__order_id__in=[order.pk for order in requests]).select_related('plan')}
     plans = {p.order_id: p for p in Plan.objects.filter(order_id__in=[o.pk for o in requests]).order_by('id')}
     rows = []

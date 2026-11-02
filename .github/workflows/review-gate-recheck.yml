@@ -1,0 +1,33 @@
+name: review-gate-recheck
+
+# A PR's review-gate only runs on its own events. When main moves or another PR changes, overlap can
+# appear for a PR that already passed, so re-run the latest review-gate of every other open PR.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  actions: write
+  pull-requests: read
+
+jobs:
+  recheck:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          CURRENT: ${{ github.event.pull_request.number }}
+        run: |
+          for pr in $(gh api "repos/$REPO/pulls?state=open&per_page=100" --jq '.[].number'); do
+            [ "$pr" = "$CURRENT" ] && continue
+            sha=$(gh api "repos/$REPO/pulls/$pr" --jq .head.sha)
+            run=$(gh api "repos/$REPO/actions/workflows/review-gate.yml/runs?head_sha=$sha&per_page=1" --jq '.workflow_runs[0].id // empty')
+            if [ -z "$run" ]; then echo "#$pr: no review-gate run (branch predates the gate)"; continue; fi
+            # A run still in progress cannot be re-run; it already reads the current state.
+            gh api -X POST "repos/$REPO/actions/runs/$run/rerun" >/dev/null 2>&1 \
+              && echo "#$pr: re-ran review-gate run $run" || echo "#$pr: run $run not re-run (in progress?)"
+          done

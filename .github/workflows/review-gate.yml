@@ -1,0 +1,35 @@
+name: review-gate
+
+# Required check. Needs a teammate's approval only when the PR touches files others changed recently.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  pull-requests: write   # request review from the people whose files overlap
+
+jobs:
+  review-gate:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          fetch-depth: 0
+      # Run the base branch's gate so a PR cannot loosen its own check; gate edits take effect once merged.
+      - run: |
+          gate=".github/review-gate.sh"
+          git rev-parse --verify -q "origin/$BASE" > /dev/null || { echo "::error::origin/$BASE is missing"; exit 1; }
+          if git cat-file -e "origin/$BASE:$gate"; then git show "origin/$BASE:$gate" > "$RUNNER_TEMP/review-gate.sh"
+          else cp "$gate" "$RUNNER_TEMP/review-gate.sh"; fi   # only before the base branch has the gate
+          bash "$RUNNER_TEMP/review-gate.sh"
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          IGNORE: codex

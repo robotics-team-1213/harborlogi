@@ -147,14 +147,54 @@ class SpatialPlacementBinding:
                                   self.instance_id, self.object_ref, self.source_ref, self.target_ref)
 
 
+@dataclass(frozen=True)
+class SimulationCellTemplate:
+    """Temporary simulation-only binding for R2 rearrangement moves (design 32, 2026-10-31).
+
+    Each move becomes an ARM transfer between placement anchor addresses on one
+    workcell, run by the instance of the move's primary arm. The command gate
+    accepts it only on the simulation path (synthetic observation, loopback Fleet).
+    shortcut: anchors are named by convention, not installed and verified per move;
+    replace with design 29 per-move cell bindings before any physical run.
+    """
+    simulation_cell_template: bool
+    workcell_id: str
+    instances: dict
+
+    def __post_init__(self):
+        if self.simulation_cell_template is not True:
+            raise ValueError('Expected a simulation cell template')
+        identifier(self.workcell_id)
+        if (not isinstance(self.instances, dict) or not self.instances
+                or not set(self.instances) <= set(YARD_ARMS)):
+            raise ValueError('Simulation instances are keyed by yard arm A/B')
+        for value in self.instances.values():
+            identifier(value)
+
+    def moves(self, plan_moves):
+        bound = []
+        for move in plan_moves:
+            arm = move['primary_arm']
+            if arm not in self.instances:
+                raise ValueError('No simulation instance for this arm')
+            ends = [anchor_address(p['area_id'], p['row'], p['column'], p['level'])
+                    for p in (move['source_placement'], move['destination_placement'])]
+            bound.append(ArmTransferBinding(move['cargo_id'], move['source'], move['destination'], self.workcell_id,
+                                            self.instances[arm], move['cargo_id'], *ends, arm))
+        return tuple(bound)
+
+
 def load_bindings(items):
     """Installed binding entries: a footprint key makes a spatial placement binding."""
     bindings = []
     for item in items:
         if not isinstance(item, dict):
             raise ValueError('Installed bindings are objects')
-        bindings.append(SpatialPlacementBinding(**item) if 'footprint_revision' in item
-                        else ArmTransferBinding(**item))
+        if 'simulation_cell_template' in item:
+            bindings.append(SimulationCellTemplate(**item))
+        else:
+            bindings.append(SpatialPlacementBinding(**item) if 'footprint_revision' in item
+                            else ArmTransferBinding(**item))
     return tuple(bindings)
 
 
