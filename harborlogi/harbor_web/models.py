@@ -132,7 +132,7 @@ class Order(Authored):
     class Meta:
         constraints = [
             models.CheckConstraint(condition=models.Q(priority_group__gt=0, sequence__gt=0, version__gt=0), name='order_positive_versions'),
-            models.CheckConstraint(condition=models.Q(cargo__isnull=False) | models.Q(kind='REARRANGE'), name='order_cargo_unless_rearrange'),
+            models.CheckConstraint(condition=models.Q(cargo__isnull=False) | models.Q(kind='REARRANGE'), name='order_cargo_unless_rearrange', violation_error_message='입고·반출 요청은 화물을 선택해야 합니다.'),
             models.UniqueConstraint(fields=['priority_group', 'sequence'], condition=models.Q(kind='OUTBOUND', tie_policy='FIXED'), name='fixed_order_sequence_unique'),
         ]
 
