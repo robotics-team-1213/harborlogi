@@ -91,14 +91,36 @@ def next_outbound_group():
     return (Order.objects.filter(kind='OUTBOUND').aggregate(top=Max('priority_group'))['top'] or 0) + 1
 
 
+def _kept_lane_targets(lanes, current):
+    """Today's group numbers when lanes still hold today's groups in order; None when they must be renumbered."""
+    groups = {}
+    for order in sorted(current.values(), key=lambda item: (item.priority_group, item.sequence, item.pk)):
+        groups.setdefault(order.priority_group, []).append(order)
+    if [{order_id for order_id, _ in lane['orders']} for lane in lanes] != [{order.pk for order in members} for members in groups.values()]:
+        return None
+    target = {}
+    for lane, (group, members) in zip(lanes, groups.items()):
+        policy = 'FIXED' if lane['fixed'] else 'ANY'
+        closed = Order.objects.filter(kind='OUTBOUND', priority_group=group).exclude(pk__in=current)
+        if closed.exclude(tie_policy=policy).exists():
+            return None  # a group holds one policy, and a finished order's cannot change
+        wanted = [order_id for order_id, _ in lane['orders']]
+        sequences = [order.sequence for order in members]
+        if wanted != [order.pk for order in members] or (policy == 'FIXED' and len(set(sequences)) != len(sequences)):
+            base = closed.aggregate(top=Max('sequence'))['top'] or 0
+            sequences = [base + position + 1 for position in range(len(wanted))]
+        target.update((order_id, (group, sequence, policy)) for order_id, sequence in zip(wanted, sequences))
+    return target
+
+
 @serialized
 @transaction.atomic
 def reorder_outbound(actor, *, lanes):
-    """Renumber every open outbound order from ordered lanes in one revision step.
+    """Apply ordered lanes to every open outbound order in one revision step.
 
     ``lanes`` is ``[dict(fixed=bool, orders=[(order_id, expected_version), ...]), ...]`` and must list each
-    open outbound order exactly once. Lane i becomes one priority group and position j its sequence.
-    Groups start above any closed outbound order so a finished order's slot is never reused. Only
+    open outbound order exactly once. Lanes that still hold today's groups in order keep their group numbers;
+    otherwise lane i becomes group ``closed_top + i + 1`` so a finished order's slot is never reused. Only
     orders whose group, sequence or tie policy changes get a new revision and an audit row.
     """
     _role(actor, 'operator')
@@ -112,11 +134,13 @@ def reorder_outbound(actor, *, lanes):
     if any(current[order_id].version != version for order_id, version in entries):
         raise Conflict('Order changed; reload before reordering.')
     closed_top = Order.objects.filter(kind='OUTBOUND').exclude(pk__in=current).aggregate(top=Max('priority_group'))['top'] or 0
-    target = {}
-    for lane_index, lane in enumerate(lanes):
-        policy = 'FIXED' if lane['fixed'] else 'ANY'
-        for position, (order_id, _) in enumerate(lane['orders']):
-            target[order_id] = (closed_top + lane_index + 1, position + 1, policy)
+    target = _kept_lane_targets(lanes, current)
+    if target is None:
+        target = {}
+        for lane_index, lane in enumerate(lanes):
+            policy = 'FIXED' if lane['fixed'] else 'ANY'
+            for position, (order_id, _) in enumerate(lane['orders']):
+                target[order_id] = (closed_top + lane_index + 1, position + 1, policy)
     changed = [order for order_id, order in current.items()
                if (order.priority_group, order.sequence, order.tie_policy) != target[order_id]]
     if not changed:
