@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright
 
 def main():
     access=json.loads((ROOT/'runs/product-preview/access.json').read_text(encoding='utf-8'))
-    output=ROOT/'runs/operations-evidence-2026-10-26'
+    output=ROOT/f'runs/operations-evidence-{datetime.now(timezone.utc):%Y-%m-%d}'
     output.mkdir(exist_ok=True)
     origin='http://127.0.0.1:8060'
     db=sqlite3.connect((ROOT/'runs/product-preview/product.sqlite3').resolve().as_uri()+'?mode=ro',uri=True)
@@ -67,8 +67,8 @@ def main():
         shutil.copyfile(video.path(),output/'slow-plan-playback.webm')
         page.locator('[data-yard-stage="3"]').click()
         page.wait_for_function('() => document.querySelector("[data-yard-3d] canvas").dataset.moving==="false"')
-        page.locator('[data-yard-view=flat]').click()
-        capture('06-restacking-plane.png','복귀·재적재가 끝난 계획상 예상 배치의 평면도','[data-yard-flat]')
+        # At 1200px and wider the floor plan sits beside the 3D view, so there is no view switch to press.
+        capture('06-restacking-plane.png','복귀·재적재가 끝난 계획상 예상 배치의 평면도','[data-yard-linked-flat]')
         for width,height in [(768,1024),(390,844)]:
             page.set_viewport_size(dict(width=width,height=height));page.goto(origin+'/')
             capture(f'07-overview-{width}.png',f'{width}px 운영 요약: 단위·미관측·실적 미집계 유지')
