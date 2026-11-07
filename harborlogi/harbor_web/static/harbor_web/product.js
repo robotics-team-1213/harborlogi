@@ -300,3 +300,31 @@ document.querySelectorAll('[data-outbound-only]').forEach(box => {
   kind.addEventListener('change', sync);
   sync();
 });
+
+// Control board: picking a job highlights the yard rows its moves touch and shows its timeline (KAN-115 시안).
+document.querySelectorAll('[data-job-table]').forEach(table => {
+  const board = table.closest('[data-control-board]') || document;
+  const rows = [...table.querySelectorAll('tr[data-job]')];
+  const select = row => {
+    rows.forEach(item => item.setAttribute('aria-selected', String(item === row)));
+    const keys = (row.dataset.rows || '').split(' ').filter(Boolean);
+    board.querySelectorAll('[data-yard-row]').forEach(element => element.classList.toggle('focus', keys.includes(element.dataset.yardRow)));
+    board.querySelectorAll('[data-job-timeline]').forEach(panel => { panel.hidden = panel.dataset.jobTimeline !== row.dataset.job; });
+  };
+  rows.forEach(row => row.addEventListener('click', event => {
+    if (event.target.closest('a')) return;
+    select(row);
+  }));
+  if (rows.length) select(rows.find(row => row.getAttribute('aria-selected') === 'true') || rows[0]);
+});
+
+// Links to a collapsed panel (the observation chip) open it instead of jumping to a closed box.
+const openTarget = hash => {
+  const target = hash && hash.length > 1 ? document.getElementById(decodeURIComponent(hash.slice(1))) : null;
+  if (target?.tagName === 'DETAILS') { target.open = true; target.querySelector('summary')?.focus(); }
+};
+document.addEventListener('click', event => {
+  const link = event.target.closest('a[href^="#"]');
+  if (link) openTarget(link.getAttribute('href'));
+});
+openTarget(location.hash);

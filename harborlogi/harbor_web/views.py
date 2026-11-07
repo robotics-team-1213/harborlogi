@@ -119,7 +119,10 @@ def overview(request):
             if row['href'].startswith(('/requests/', '/plans/')):
                 row['href'] += f'?observation={observation.pk}'
     from harbor_web.operations import operations_context
-    return page(request, 'overview.html', section='overview', rows=rows, operations=operations_context(observation), observations=observations,
+    operations = operations_context(observation)
+    for job in operations['workload']['plans']:  # the timeline panel shows the last recorded facts of each listed job
+        job['facts'] = build_timeline(job['plan'].order)['actual_line'][-4:]
+    return page(request, 'overview.html', section='overview', rows=rows, operations=operations, observations=observations,
                 observation=observation, condition=observation.condition if observation else None,
                 field_pending=FieldEpisode.objects.filter(state='OPEN').count())
 
@@ -164,7 +167,7 @@ def cargo_footprint(request, pk):
         from django.core.exceptions import PermissionDenied
         raise PermissionDenied
     current_footprint = CargoFootprint.objects.filter(cargo=cargo).order_by('-pk').first()
-    form = forms.FootprintForm(request.POST or None, initial={'length_cells': current_footprint.length_cells if current_footprint else 1})
+    form = forms.FootprintForm(request.POST or None, initial={'length_cells': current_footprint.length_cells if current_footprint else 3})
     if request.method == 'POST' and form.is_valid():
         try:
             services.register_footprint(request.user, cargo_id=pk, **form.cleaned_data)

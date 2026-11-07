@@ -45,7 +45,7 @@ def main():
             user.groups.add(*Group.objects.filter(name__in=['viewer', 'operator', 'field', 'admin']))
         for code, name in [('C1', '우선 반출 화물'), ('C2', '상단 재취급 화물'), ('C3', '공급 인계 확인 화물'),
                            ('C4', '중앙 보관 화물'), ('C5', '하단 보관 화물'), ('C6', '중단 보관 화물'), ('C7', '상단 보관 화물')]:
-            length = 2 if code == 'C1' else 3 if code == 'C5' else 1
+            length = 3  # every site container is 1×3 and fills one yard row (KAN-115)
             if not Cargo.objects.filter(code=code).exists():
                 services.register_cargo(user, code=code, name=name, weight_kg=2, volume_m3='0.012', destination='반출대 · 합성 시험', length_cells=length)
             cargo = Cargo.objects.get(code=code)
@@ -62,8 +62,8 @@ def main():
             condition = services.register_condition(user, name='3×3×3 다칸 점유 · 합성 관측 검토용', calibration_ref='synthetic-only-not-field-calibration', payload=policy)
         now = timezone.now()
         placements = []
-        for code, row, column, level in [('C1', 1, 1, 1), ('C2', 1, 1, 2), ('C4', 2, 3, 1),
-                                         ('C5', 3, 1, 1), ('C6', 3, 2, 2), ('C7', 3, 2, 3)]:
+        for code, row, column, level in [('C1', 1, 1, 1), ('C2', 1, 1, 2), ('C4', 2, 1, 1),
+                                         ('C5', 3, 1, 1), ('C6', 3, 1, 2), ('C7', 3, 1, 3)]:
             footprint = CargoFootprint.objects.filter(cargo__code=code).order_by('-pk').first()
             placements.append(dict(cargo_id=code, area_id='yard', row=row, column=column, level=level,
                                    orientation=0, footprint_revision=footprint.pk))

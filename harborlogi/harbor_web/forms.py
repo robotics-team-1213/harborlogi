@@ -7,7 +7,7 @@ from harbor_web.models import Cargo, Condition, Measurement, Observation, Order
 
 class FootprintForm(forms.Form):
     length_cells = forms.TypedChoiceField(label='점유 크기', coerce=int,
-        choices=[(n, f'{n} × 1칸') for n in (1, 2, 3)], initial=1)
+        choices=[(n, f'{n} × 1칸') for n in (1, 2, 3)], initial=3)  # site containers are 1×3 (KAN-115)
 
 
 class CargoForm(forms.ModelForm):
