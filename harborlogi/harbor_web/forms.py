@@ -43,36 +43,41 @@ class FixedOrderCheckbox(forms.CheckboxInput):
         return 'FIXED' if value else 'ANY'
 
 
-TIE_POLICY_LABEL = '그룹 안 순서 고정'
-TIE_POLICY_HELP = '기본은 고정입니다. 해제하면 같은 그룹의 요청을 순서와 관계없이 처리할 수 있습니다.'
+TIE_POLICY_LABEL = '단계 안 순서 고정'
+TIE_POLICY_HELP = '기본은 고정입니다. 해제하면 같은 단계의 요청을 순서와 관계없이 처리할 수 있습니다.'
+TIER_CHOICES = [(1, '긴급'), (2, '우선'), (3, '일반')]  # priority_group 1·2·3 (KAN-116)
+TIER_HELP = '긴급 → 우선 → 일반 순서로 처리합니다. 같은 단계 안의 순서는 반출 관제에서 추천 시나리오로 정합니다.'
 
 
 class OrderForm(forms.ModelForm):
-    make_first = forms.BooleanField(label='맨 앞에 등록', required=False,
-        help_text='반출 대기열 맨 앞에 새 그룹으로 넣고, 기존 요청은 한 그룹씩 뒤로 미룹니다.')
+    priority_group = forms.TypedChoiceField(label='우선순위 단계', coerce=int, choices=TIER_CHOICES, initial=3,
+                                            widget=forms.RadioSelect, help_text=TIER_HELP)
+    # Left empty, the order goes last in its tier; scripts may still send an explicit sequence.
+    sequence = forms.IntegerField(required=False, min_value=1, widget=forms.HiddenInput)
+    make_first = forms.BooleanField(label='이 단계 맨 앞에 등록', required=False,
+        help_text='반출 요청만 해당합니다. 같은 단계의 기존 요청은 한 칸씩 뒤로 갑니다.')
 
     class Meta:
         model = Order
         fields = ['cargo', 'kind', 'title', 'priority_group', 'sequence', 'tie_policy', 'note']
-        labels = dict(cargo='화물', kind='요청 종류', title='요청 제목', priority_group='우선순위 그룹', sequence='그룹 안 순서', tie_policy=TIE_POLICY_LABEL, note='요청 메모')
+        labels = dict(cargo='화물', kind='요청 종류', title='요청 제목', tie_policy=TIE_POLICY_LABEL, note='요청 메모')
         widgets = {'note': forms.Textarea(attrs={'rows': 3}), 'tie_policy': FixedOrderCheckbox(),
                    'title': forms.TextInput(attrs={'placeholder': '예: 본선 1차 선적분'})}
         help_texts = dict(title='목록에서 화물 ID 대신 먼저 보이는 이름입니다. 비우면 화물 이름을 씁니다.',
-                          priority_group='작은 그룹부터 검토합니다.', sequence='순서 고정 그룹에서 작은 값부터 처리합니다.',
                           tie_policy=TIE_POLICY_HELP)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['kind'].choices = [('INBOUND', '입고'), ('OUTBOUND', '반출')]
-        self.fields['tie_policy'].choices = [('FIXED', '순서 고정'), ('ANY', '같은 그룹 안에서 선택 허용')]
+        self.fields['tie_policy'].choices = [('FIXED', '순서 고정'), ('ANY', '같은 단계 안에서 선택 허용')]
 
 
 class PriorityForm(forms.Form):
     expected_version = forms.IntegerField(widget=forms.HiddenInput)
     title = forms.CharField(label='요청 제목', max_length=80, required=False)
-    priority_group = forms.IntegerField(label='우선순위 그룹', min_value=1)
-    sequence = forms.IntegerField(label='그룹 안 순서', min_value=1)
-    tie_policy = forms.ChoiceField(label=TIE_POLICY_LABEL, choices=[('FIXED', '순서 고정'), ('ANY', '그룹 안 선택 허용')],
+    priority_group = forms.TypedChoiceField(label='우선순위 단계', coerce=int, choices=TIER_CHOICES, widget=forms.RadioSelect)
+    sequence = forms.IntegerField(required=False, min_value=1, widget=forms.HiddenInput)
+    tie_policy = forms.ChoiceField(label=TIE_POLICY_LABEL, choices=[('FIXED', '순서 고정'), ('ANY', '단계 안 선택 허용')],
                                    widget=FixedOrderCheckbox(), help_text=TIE_POLICY_HELP)
     note = forms.CharField(label='변경 메모', max_length=500, required=False, widget=forms.Textarea(attrs={'rows': 3}))
 

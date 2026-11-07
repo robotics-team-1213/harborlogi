@@ -71,11 +71,13 @@ def main():
             payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp', 'stand'], placements=placements, holdings=[]))
         order = Order.objects.filter(cargo__code='C1', kind='OUTBOUND').first()
         if order is None:
-            order = services.create_order(user, cargo=Cargo.objects.get(code='C1'), kind='OUTBOUND', priority_group=1, sequence=1, tie_policy='FIXED', note='변경된 반출 지시를 검토하는 합성 사례')
+            order = services.create_order(user, cargo=Cargo.objects.get(code='C1'), kind='OUTBOUND', priority_group=2, sequence=1, tie_policy='FIXED', note='변경된 반출 지시를 검토하는 합성 사례')
+        if not Order.objects.filter(cargo__code='C2', kind='OUTBOUND').exists():  # same tier as C1: the tier shows a recommended order
+            services.create_order(user, cargo=Cargo.objects.get(code='C2'), kind='OUTBOUND', priority_group=2, sequence=2, tie_policy='FIXED', note='같은 우선 단계의 두 번째 반출 · 추천 시나리오 검토용')
         services.make_plan(user, order_id=order.pk, expected_version=order.version, observation_id=observation.pk)
         inbound = Order.objects.filter(cargo__code='C3', kind='INBOUND').first()
         if inbound is None:
-            inbound = services.create_order(user, cargo=Cargo.objects.get(code='C3'), kind='INBOUND', priority_group=9, sequence=1, tie_policy='FIXED', note='현장 확인 화면 검토용 합성 요청')
+            inbound = services.create_order(user, cargo=Cargo.objects.get(code='C3'), kind='INBOUND', priority_group=3, sequence=1, tie_policy='FIXED', note='현장 확인 화면 검토용 합성 요청')
         if not FieldEpisode.objects.filter(order=inbound, state='OPEN').exists():
             services.assign_episode(user, order_id=inbound.pk, vehicle_id='합성 차량 P1', assigned_to=user)
     print('Product preview: http://127.0.0.1:8060/ · synthetic data; Fleet disconnected.', flush=True)

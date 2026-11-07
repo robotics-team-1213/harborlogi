@@ -8,6 +8,7 @@ urlpatterns = [
     path('', views.overview, name='overview'),
     path('outbound/', views.outbound_queue, name='outbound'),
     path('outbound/reorder/', views.outbound_reorder, name='outbound_reorder'),
+    path('outbound/tiers/apply/', views.outbound_tier_apply, name='outbound_tier_apply'),
     path('cargo/', views.cargo_list, name='cargo'),
     path('cargo/new/', views.cargo_new, name='cargo_new'),
     path('cargo/<int:pk>/footprint/', views.cargo_footprint, name='cargo_footprint'),

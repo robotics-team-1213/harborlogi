@@ -195,34 +195,21 @@ document.querySelectorAll('[data-history-back]').forEach(button => {
 // Choosing another observation reloads at once; the submit button stays for keyboard and no-script use.
 document.querySelectorAll('[data-auto-submit]').forEach(select => select.addEventListener('change', () => select.form.requestSubmit()));
 
-// Outbound queue lanes: drag cards, or use ▲▼ and 맨 앞으로; the lane fields are rebuilt on submit.
+// Outbound queue: three fixed tiers (긴급 · 우선 · 일반). Drag cards between tiers, or use ▲▼ and 맨 앞으로;
+// the lane fields are rebuilt on submit. Tiers never appear or disappear, so an empty tier stays a drop target.
 document.querySelectorAll('[data-queue-editor]').forEach(editor => {
   const box = editor.querySelector('[data-queue-lanes]');
-  const form = editor.querySelector('form');
-  const zone = editor.querySelector('[data-queue-new-lane]');
+  const form = editor.querySelector('form[data-queue-form]');
   const status = editor.querySelector('[data-queue-status]');
   if (!box || !form || !box.querySelector('[data-queue-move]')) return;
-  editor.querySelectorAll('[data-queue-tools], [data-queue-new-lane]').forEach(element => { element.hidden = false; });
-  const template = box.querySelector('[data-queue-lane]').cloneNode(true);
-  template.querySelector('ol').replaceChildren();
+  editor.querySelectorAll('[data-queue-tools]').forEach(element => { element.hidden = false; });
   const lanes = () => [...box.querySelectorAll('[data-queue-lane]')];
   const initial = JSON.stringify(serialize());
   function serialize() {
     return lanes().map(lane => `${lane.querySelector('[data-lane-fixed]').checked ? 'FIXED' : 'ANY'}|` +
       [...lane.querySelectorAll('[data-order]')].map(card => `${card.dataset.order}:${card.dataset.version}`).join(','));
   }
-  function newLane(before = null) {
-    const lane = template.cloneNode(true);
-    lane.querySelector('[data-lane-fixed]').checked = true;
-    box.insertBefore(lane, before);
-    return lane;
-  }
   function refresh(message) {
-    lanes().forEach(lane => { if (!lane.querySelector('[data-order]')) lane.remove(); });
-    lanes().forEach((lane, index) => {
-      lane.querySelector('[data-lane-number]').textContent = index + 1;
-      lane.setAttribute('aria-label', `${index + 1}번째 묶음`);
-    });
     const changed = JSON.stringify(serialize()) !== initial;
     if (status) status.textContent = [message, changed ? '아직 저장하지 않았습니다.' : ''].filter(Boolean).join(' · ');
   }
@@ -230,8 +217,8 @@ document.querySelectorAll('[data-queue-editor]').forEach(editor => {
     const lane = card.closest('[data-queue-lane]'), list = lane.querySelector('ol');
     const all = lanes(), index = all.indexOf(lane);
     if (direction === 'first') {
-      newLane(all[0]).querySelector('ol').append(card);
-      return refresh(`${card.dataset.label}을(를) 맨 앞 묶음으로 옮겼습니다.`);
+      all[0].querySelector('ol').prepend(card);
+      return refresh(`${card.dataset.label}을(를) 긴급 맨 앞으로 옮겼습니다.`);
     }
     if (direction === 'up') {
       if (card.previousElementSibling) list.insertBefore(card, card.previousElementSibling);
@@ -240,7 +227,6 @@ document.querySelectorAll('[data-queue-editor]').forEach(editor => {
     } else {
       if (card.nextElementSibling) list.insertBefore(card.nextElementSibling, card);
       else if (index < all.length - 1) all[index + 1].querySelector('ol').prepend(card);
-      else if (list.children.length > 1) newLane().querySelector('ol').append(card);
       else return;
     }
     refresh(`${card.dataset.label} 위치를 바꿨습니다.`);
@@ -264,8 +250,6 @@ document.querySelectorAll('[data-queue-editor]').forEach(editor => {
   box.addEventListener('pointermove', event => {
     if (!dragged) return;
     const under = document.elementsFromPoint(event.clientX, event.clientY);
-    zone?.classList.toggle('over', under.includes(zone));
-    if (zone?.classList.contains('over')) return;
     const list = under.map(element => element.closest('[data-queue-lane]')).find(Boolean)?.querySelector('ol');
     if (!list) return;
     const after = [...list.querySelectorAll('[data-order]:not(.dragging)')]
@@ -274,7 +258,6 @@ document.querySelectorAll('[data-queue-editor]').forEach(editor => {
   });
   const drop = () => {
     if (!dragged) return;
-    if (zone?.classList.contains('over')) { zone.classList.remove('over'); newLane().querySelector('ol').append(dragged); }
     const card = dragged; dragged = null; card.classList.remove('dragging');
     refresh(`${card.dataset.label} 위치를 바꿨습니다.`);
   };
