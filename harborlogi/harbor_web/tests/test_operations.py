@@ -30,7 +30,7 @@ class OperationsTests(TestCase):
         self.assertEqual(context['orders']['outbound'], 0)
         self.assertEqual(context['actual']['completed'], 0)
         html = render_to_string('operations_summary.html', dict(operations=context))
-        self.assertIn('미관측', html)
+        self.assertIn('현황 없음', html)
         self.assertIn('미집계', html)
 
     def test_latest_plan_once_and_rehandle_counts_cargo_not_round_trip_moves(self):
@@ -104,6 +104,7 @@ class OperationsTests(TestCase):
         workload = context['workload']
         self.assertEqual((workload['outbound_rehandle_moves'], workload['outbound_plan_count']), (1, 1))
         self.assertEqual(workload['rehandle_per_outbound'], 1.0)
+        self.assertEqual(workload['outbound_rehandle_plans'], 1)
         arms = {m['primary_arm'] for m in plan.result['moves']}
         self.assertEqual(workload['plans'][0]['primary_arms'], sorted(arms))
         self.assertNotIn('S', workload['plans'][0]['primary_arms'] + workload['plans'][0]['alternate_arms'])
@@ -111,9 +112,12 @@ class OperationsTests(TestCase):
         self.assertEqual(context['attention'], [])
         self.assertEqual(context['inventory']['occupancy_percent'], round(2 * 100 / 6))
         html = render_to_string('operations_summary.html', dict(operations=context))
-        for text in ('확인이 필요한 것 0건', f'관측 #{plan.observation.pk} 기준', '반출 1건당 계획상 재취급 이동',
-                     '지시 전 계획 · 실적 아님', '재취급 1회 ÷ 반출 계획 1건', '공급암 S', '계획한 팔(주·대안)', '미집계'):
+        for text in ('확인이 필요한 것 0건', f'야드 현황 #{plan.observation.pk} 기준', '재취급이 필요한 반출',
+                     '1<small> / 계획된 반출 1건</small>', '지시 전 계획 · 실적 아님', '계획한 재취급 이동 1회', '공급암 S',
+                     '계획한 팔(주·대안)', '미집계', '>점유율<'):
             self.assertIn(text, html)
+        for text in ('반출 1건당', '관측 점유율', '선택 관측'):
+            self.assertNotIn(text, html)
 
     def test_stale_observation_is_flagged_and_has_no_ratio(self):
         plan = self.buried_plan()
@@ -122,7 +126,7 @@ class OperationsTests(TestCase):
         self.assertIsNone(context['workload']['rehandle_per_outbound'])
         html = render_to_string('operations_summary.html', dict(operations=context))
         self.assertIn('유효한 반출 계획 없음', html)
-        self.assertIn('관측 재확인 필요', html)
+        self.assertIn('야드 현황 다시 확인', html)
         services.record_observation(self.admin, source_id=plan.observation.source_id,
             source_revision='new', observed_at=self.now, provenance='DECLARED',
             condition=plan.condition, payload=plan.observation.payload)

@@ -110,7 +110,7 @@ class Observation(Immutable):
         from django.utils import timezone
         observed = timezone.localtime(self.observed_at) if timezone.is_aware(self.observed_at) else self.observed_at
         kind = {'SYNTHETIC': '합성 자료', 'DECLARED': '수동 등록'}.get(self.provenance, self.provenance)
-        return f'#{self.pk} · {self.source_id} · {observed:%m-%d %H:%M} 관측 · {kind}'
+        return f'#{self.pk} · {self.source_id} · {observed:%m-%d %H:%M} 기준 · {kind}'
 
 
 class Order(Authored):

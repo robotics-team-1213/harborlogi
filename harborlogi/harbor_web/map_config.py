@@ -44,7 +44,7 @@ def map_scene(payload):
     if 'yard_layout' not in payload:
         return None
     draft = editor_draft(payload)
-    return dict(kind='map-definition', observed=False,
+    return dict(kind='map-definition', observed=False, slot_cells=payload.get('slot_cells'),
         areas=[{k: a[k] for k in ('id', 'label', 'rows', 'columns', 'levels', 'x', 'y')} for a in draft['areas']],
         frames=[dict(index=0, label='배치 미관측', boxes=[], move=None)])
 

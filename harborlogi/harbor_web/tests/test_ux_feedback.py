@@ -47,7 +47,7 @@ class UxFeedbackTests(TestCase):
     def test_observation_label_drops_the_raw_revision(self):
         observation = Observation(pk=7, source_id='yard-camera', source_revision='2026-11-05T11:03:56.725430+00:00',
                                   observed_at=datetime(2026, 11, 5, 11, 3, tzinfo=dt_timezone.utc), provenance='SYNTHETIC')
-        self.assertEqual(observation.display_label, '#7 · yard-camera · 11-05 20:03 관측 · 합성 자료')
+        self.assertEqual(observation.display_label, '#7 · yard-camera · 11-05 20:03 기준 · 합성 자료')
 
     def test_recommendation_shows_two_candidates_and_folds_the_rest(self):
         candidate = dict(score=dict(different_area_count=0, different_position_count=0, same_area_manhattan_distance=0, final_level_sum=1), moves=[])

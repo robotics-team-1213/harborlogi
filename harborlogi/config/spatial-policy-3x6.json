@@ -1,0 +1,30 @@
+{
+  "outbound_stand": "stand",
+  "temporary_bays": ["temp_l", "temp_r"],
+  "allowed_moves": [["Y11", "temp_l"], ["temp_l", "Y11"], ["Y11", "temp_r"], ["temp_r", "Y11"], ["Y11", "stand"]],
+  "max_observation_age_seconds": 1800,
+  "conveyor": "conveyor",
+  "arm_reach": [
+    ["A", "Y11"], ["A", "Y12"], ["A", "Y13"], ["A", "Y14"], ["A", "Y15"], ["A", "Y16"],
+    ["A", "Y21"], ["A", "Y22"], ["A", "Y23"], ["A", "Y24"], ["A", "Y25"], ["A", "Y26"],
+    ["A", "Y31"], ["A", "Y32"], ["A", "Y33"], ["A", "Y34"], ["A", "Y35"], ["A", "Y36"],
+    ["A", "temp_l"], ["A", "stand"],
+    ["B", "Y11"], ["B", "Y12"], ["B", "Y13"], ["B", "Y14"], ["B", "Y15"], ["B", "Y16"],
+    ["B", "Y21"], ["B", "Y22"], ["B", "Y23"], ["B", "Y24"], ["B", "Y25"], ["B", "Y26"],
+    ["B", "Y31"], ["B", "Y32"], ["B", "Y33"], ["B", "Y34"], ["B", "Y35"], ["B", "Y36"],
+    ["B", "temp_r"], ["B", "stand"]
+  ],
+  "spatial_areas": [
+    {"area_id": "temp_l", "rows": 3, "columns": 3, "levels": 1},
+    {"area_id": "temp_r", "rows": 3, "columns": 3, "levels": 1},
+    {"area_id": "stand", "rows": 1, "columns": 3, "levels": 1}
+  ],
+  "spatial_moves": [["yard", "yard"], ["yard", "temp_l"], ["temp_l", "yard"], ["yard", "temp_r"], ["temp_r", "yard"], ["yard", "stand"]],
+  "area_presentation": {
+    "yard": {"label": "장치 야드(배)", "x": 0, "y": 0},
+    "temp_l": {"label": "임시 적재(왼쪽)", "x": 0, "y": -4.2},
+    "temp_r": {"label": "임시 적재(오른쪽)", "x": 0, "y": 4.2},
+    "stand": {"label": "컨베이어(반출)", "x": 7.2, "y": 1}
+  },
+  "slot_cells": 3
+}

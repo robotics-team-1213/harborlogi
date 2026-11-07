@@ -15,5 +15,5 @@
 <div class="preview-controls" aria-label="후보 예상 단계 선택">{% for stage in yard_stages %}<button type="button" class="quiet" data-yard-stage="{{ stage.index }}" aria-controls="{{ stage.panel_id }}" aria-pressed="{% if forloop.first %}true{% else %}false{% endif %}" hidden>{% if forloop.first %}관측{% else %}{{ stage.index }} · {{ stage.phase }}{% endif %}</button>{% endfor %}</div>
 <p class="preview-status helptext" data-yard-status role="status">단계를 선택하면 이 후보의 예상 위치를 표시합니다.</p>
 {% include 'yard_3d.html' %}<div data-yard-flat>{% for stage in yard_stages %}{% include 'yard_stage.html' %}{% endfor %}</div></section>
-<h2>저장된 이동 순서</h2><ol>{% for move in display_moves %}<li>{{ move.cargo_id }} · {{ move.phase_label }} · {{ move.source_placement.area_id }} {{ move.source_placement.row }}행 {{ move.source_placement.column }}열 {{ move.source_placement.level }}층 → {{ move.destination_placement.area_id }} {{ move.destination_placement.row }}행 {{ move.destination_placement.column }}열 {{ move.destination_placement.level }}층</li>{% endfor %}</ol>
+<h2>저장된 이동 순서</h2><ol>{% for move in display_moves %}<li>{{ move.cargo_id }} · {{ move.phase_label }} · {{ move.route }}</li>{% endfor %}</ol>
 {% endblock %}

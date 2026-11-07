@@ -1,7 +1,9 @@
 <section class="yard-stage" id="{{ stage.panel_id }}" data-yard-panel="{{ stage.index }}" aria-label="{{ stage.label }}">
   <div class="yard-stage-heading"><h3>{{ stage.label }}</h3>{% if stage.index %}<span class="badge">예상 · 실제 위치 아님</span>{% else %}<span class="badge">고정된 원본</span>{% endif %}</div>
-  {% if stage.move %}<p class="stage-description"><strong>{{ stage.move.cargo_id }}</strong> · {{ stage.move.source }}{% if not stage.move.spatial %} {{ stage.move.source_level }}층{% endif %} → {{ stage.move.destination }}{% if not stage.move.spatial %} {{ stage.move.destination_level }}층{% endif %} · 계획한 팔 {{ stage.move.primary_arm }}</p>{% endif %}
-  {% if stage.layout %}
+  {% if stage.move %}<p class="stage-description"><strong>{{ stage.move.cargo_id }}</strong> · {% if stage.move.route %}{{ stage.move.route }}{% else %}{{ stage.move.source }}{% if not stage.move.spatial %} {{ stage.move.source_level }}층{% endif %} → {{ stage.move.destination }}{% if not stage.move.spatial %} {{ stage.move.destination_level }}층{% endif %}{% endif %} · 계획한 팔 {{ stage.move.primary_arm }}</p>{% endif %}
+  {% if stage.slot_map %}
+    {% include 'yard_rows.html' with yard=stage.slot_map %}
+  {% elif stage.layout %}
     {% include 'yard_grid.html' %}
     {% if stage.auxiliary_areas %}<h4 class="auxiliary-heading">추가 구역 · 크기를 명시한 위치</h4><div class="spatial-auxiliary">{% for area in stage.auxiliary_areas %}<section><h4>{{ area.area_label|default:area.area_id }}</h4>{% include 'yard_grid.html' with stage=area grid_prefix=stage.panel_id %}</section>{% endfor %}</div>{% endif %}
     {% if stage.auxiliary_bays %}<h4 class="auxiliary-heading">맵 밖 보조 위치</h4><div class="yard-grid yard-auxiliary">{% for bay in stage.auxiliary_bays %}{% include 'bay_stack.html' %}{% endfor %}</div>{% endif %}

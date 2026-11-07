@@ -9,6 +9,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from harbor_web import scenario_import, services
 from harbor_web.inbound_decision import DECIDE_ACTION, inbound_progress
 from harbor_web.models import Audit, Observation, Order, Plan
+from harbor_web.tests.test_control_board import site_policy
 from harbor_web.xlsx import SheetError, read_xlsx, write_xlsx
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,12 +29,12 @@ class WorkbookTests(SimpleTestCase):
             read_xlsx(b'not a zip')
 
     def test_every_problem_is_reported_with_its_row(self):
-        data = workbook([['C1', '', '1', '2'], ['C1', '', '4', '1']],
+        data = workbook([['C1', '', '1', '', '2'], ['C1', '', '4', '1', '1']],
                         [['1', '반출', 'Z9', '', '우선', ''], ['2', '입고', 'C1', '', '최우선', ''], ['3', '보관', 'C2', '', '', '']])
         scenario, errors = scenario_import.parse_workbook(data)
         self.assertIsNone(scenario)
         joined = '\n'.join(errors)
-        for text in ('「초기 배치」 3행: 화물 C1가 두 번 나옵니다.', '「초기 배치」 3행: 행과 층은 1~3입니다.',
+        for text in ('「초기 배치」 3행: 화물 C1가 두 번 나옵니다.', '「초기 배치」 3행: 행은 1~3, 층은 1~3입니다.',
                      '1행 1층이 비어 있어 받칠 수 없습니다', '「이벤트」 2행: Z9는 초기 배치나 앞선 입고에 없어 반출할 수 없습니다.',
                      '「이벤트」 3행: 단계는 긴급 · 우선 · 일반입니다.', '「이벤트」 3행: C1는 이미 야드에 있어 입고할 수 없습니다.',
                      '「이벤트」 4행: 종류는 입고 또는 반출입니다.'):
@@ -72,7 +73,7 @@ class ScenarioFlowTests(TestCase):
         self.assertContains(self.client.get('/scenarios/'), 'S1')
 
     def test_a_bad_sheet_creates_nothing(self):
-        response = self.upload(workbook([['C1', '', '1', '1']], [['1', '반출', 'Z9', '', '우선', '']]))
+        response = self.upload(workbook([['C1', '', '1', '', '1']], [['1', '반출', 'Z9', '', '우선', '']]))
         self.assertContains(response, '파일을 등록하지 않았습니다')
         self.assertFalse(Order.objects.exists())
         self.assertFalse(Observation.objects.exists())
@@ -109,3 +110,33 @@ class ScenarioFlowTests(TestCase):
         plan = Plan.objects.filter(order=order).latest('pk')
         self.assertEqual(self.client.post(f'/plans/{plan.pk}/', dict(action='decide', expected_version=order.version + 1)).status_code, 409)
         self.assertFalse(Audit.objects.filter(action=DECIDE_ACTION).exists())
+
+
+class SiteScenarioTests(TestCase):
+    """On the 3×6 site a row has two slots: 칸 picks one, and the sheet is checked against that yard."""
+    def setUp(self):
+        self.user = User.objects.create_user('lead')
+        self.user.groups.add(*[Group.objects.get_or_create(name=name)[0] for name in ('admin', 'operator', 'viewer')])
+        services.register_condition(self.user, name='3×6 site', calibration_ref='synthetic', payload=site_policy())
+        self.client.force_login(self.user)
+
+    def test_slots_place_containers_side_by_side(self):
+        dims = scenario_import.site_dims()
+        self.assertEqual(dims, dict(rows=3, slots=2, levels=3, width=3))
+        data = workbook([['K1', '', '1', '2', '1'], ['K2', '', '1', '2', '2'], ['K3', '', '2', '', '1']],
+                        [['1', '입고', 'N1', '', '일반', '']])
+        self.client.post('/scenarios/', dict(name='S3', workbook=SimpleUploadedFile('s.xlsx', data)))
+        observation = Observation.objects.get()
+        self.assertEqual(sorted((p['cargo_id'], p['row'], p['column'], p['level']) for p in observation.payload['placements']),
+                         [('K1', 1, 4, 1), ('K2', 1, 4, 2), ('K3', 2, 1, 1)])
+        self.assertEqual(observation.payload['observed_areas'], ['yard', 'temp_l', 'temp_r', 'stand'])
+        plan = Plan.objects.get(order__cargo__code='N1')
+        self.assertEqual(plan.result['status'], 'READY')
+        self.assertIn(plan.result['recommendation']['column'], (1, 4))
+        _, errors = scenario_import.parse_workbook(workbook([['K9', '', '1', '3', '1'], ['K8', '', '2', '2', '2']],
+                                                            [['1', '반출', 'K8', '', '', '']]), dims)
+        self.assertIn('「초기 배치」 2행: 칸은 1~2입니다.', errors)
+        self.assertIn('「초기 배치」 K8: 2행 2칸 1층이 비어 있어 받칠 수 없습니다.', errors)
+        template = read_xlsx(self.client.get('/scenarios/template.xlsx').content)
+        self.assertIn(['C4', '옆 자리 화물', '1', '2', '1'], template['초기 배치'])
+        self.assertContains(self.client.get('/scenarios/'), '3행 × 한 행 2자리(칸) · 3층')
