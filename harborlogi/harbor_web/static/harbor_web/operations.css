@@ -149,7 +149,8 @@
 .lane-label {font-size:var(--primitive-font-caption);font-weight:700;color:var(--semantic-text-secondary);text-align:center}
 .tray-slots {display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:var(--primitive-space-2)}
 .slot-card {display:flex;flex-direction:column;gap:3px;min-height:7.5rem;padding:var(--primitive-space-2);border:1px solid var(--semantic-border-control);border-radius:var(--primitive-radius-control);background:var(--semantic-surface-panel);font-size:var(--primitive-font-caption);transition:box-shadow .2s;min-width:0}
-.site-yard .slot-card {aspect-ratio:1/2}  /* a 1×3 slot reads as a long container, not a square */
+.site-yard .slot-card {aspect-ratio:3/4;min-height:auto}  /* a 1×3 slot reads as a container; three full levels nearly fill it, and it grows if they need more */
+.site-yard span.slot-level {min-height:28px;align-content:center}
 .site-center .site-tray .slot-card {min-height:auto}
 .slot-card.empty {border-style:dashed;color:var(--semantic-text-secondary)}
 .slot-card.focus {box-shadow:0 0 0 3px var(--primitive-color-teal);border-color:var(--primitive-color-teal-dark)}
