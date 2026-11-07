@@ -61,6 +61,18 @@ def plan_detail(request, pk):
         if not has_role(request.user, 'operator'):
             from django.core.exceptions import PermissionDenied
             raise PermissionDenied
+        if request.POST.get('action') == 'decide':  # a person accepts the algorithm's inbound placement (ADR 0012)
+            from django.contrib import messages
+            from harbor_web.inbound_decision import decide_placement
+            version = request.POST.get('expected_version', '')
+            if not (version.isascii() and version.isdigit()):
+                return render(request, 'error.html', dict(reason='검토한 revision이 올바르지 않습니다.', return_url=f'/plans/{pk}/'), status=400)
+            try:
+                decide_placement(request.user, plan_id=pk, expected_version=int(version))
+            except (services.Conflict, ValidationError):
+                return render(request, 'error.html', dict(heading='결정할 수 없습니다', reason='요청이나 계획이 바뀌었습니다. 최신 입고 추천을 다시 확인하세요.', return_url=f'/requests/{plan.order_id}/'), status=409)
+            messages.success(request, '입고 위치를 결정했습니다. 실제 이동은 입고 실행 연결과 관측으로 확인합니다.')
+            return redirect(f'/plans/{pk}/')
         form = CommandForm(request.POST)
         if form.is_valid():
             try:
@@ -76,7 +88,8 @@ def plan_detail(request, pk):
         return page(request, 'workspace.html', section='outbound', **workspace_context(plan.order, plan, review_observation=review_observation))
     if plan.result.get('plan_kind') == 'inbound-placement':
         from harbor_web.placement_view import placement_context
-        return page(request, 'placement_plan.html', section='cargo', **placement_context(plan))
+        from harbor_web.inbound_decision import placement_decision
+        return page(request, 'placement_plan.html', section='cargo', decision=placement_decision(plan), **placement_context(plan))
     from harbor_web.yard_scene import present_stage, scene_for
     observation_stage = None
     if plan.observation.payload.get('schema') == 'grid-placement-v1':
