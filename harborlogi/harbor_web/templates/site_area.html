@@ -1,0 +1,1 @@
+<section class="site-tray" aria-label="{{ area.label }}"><h4>{{ area.label }}<small>{{ area.used }} / {{ area.slots }}자리</small></h4><div class="tray-slots">{% for lane in area.lanes %}{% for slot in lane.slots %}{% include 'slot_card.html' %}{% endfor %}{% endfor %}</div></section>

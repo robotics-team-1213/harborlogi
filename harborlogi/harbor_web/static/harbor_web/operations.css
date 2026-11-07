@@ -72,29 +72,9 @@
 .kpi .n b {color:var(--primitive-color-warning-ink);font-weight:600}
 .kpi.na .v {color:var(--semantic-text-secondary)}
 .control-ws {display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:var(--primitive-space-4);align-items:start}
-.yard-plan {display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:var(--primitive-space-3) var(--primitive-space-4)}
-.yard-rows {display:grid;gap:var(--primitive-space-2)}
-.yard-row {border:1px solid var(--semantic-border-divider);border-radius:var(--primitive-radius-control);padding:var(--primitive-space-2);display:flex;flex-direction:column;gap:var(--primitive-space-2);transition:box-shadow .2s}
-.yard-row.focus,.zone.focus {box-shadow:0 0 0 3px var(--primitive-color-teal);border-color:var(--primitive-color-teal-dark)}
-.yard-row-h {display:flex;align-items:center;gap:var(--primitive-space-2);font-size:var(--primitive-font-caption)}
-.yard-row-h b {font-size:var(--primitive-font-label)}
-.yard-row-h .cells {color:var(--semantic-text-secondary);font-family:ui-monospace,monospace}
-.h-chip {margin-left:auto;padding:0 var(--primitive-space-2);border-radius:4px;background:var(--primitive-color-navy-soft);font-weight:600}
-.h-chip.h-0 {background:var(--primitive-color-paper);color:var(--semantic-text-secondary)}
-.row-stack {display:flex;flex-direction:column;gap:3px}
-.row-level {display:grid;gap:3px}
-.row-level.cols-1 {grid-template-columns:1fr}.row-level.cols-2 {grid-template-columns:repeat(2,1fr)}.row-level.cols-3 {grid-template-columns:repeat(3,1fr)}.row-level.cols-4 {grid-template-columns:repeat(4,1fr)}
-.slot {min-height:30px;border-radius:4px;display:flex;align-items:center;justify-content:space-between;gap:var(--primitive-space-2);padding:0 var(--primitive-space-2);font-size:var(--primitive-font-caption);font-family:ui-monospace,monospace;min-width:0;overflow-wrap:anywhere}
-.slot.span-1 {grid-column:span 1}.slot.span-2 {grid-column:span 2}.slot.span-3 {grid-column:span 3}.slot.span-4 {grid-column:span 4}
-.slot .lv {font-family:inherit;opacity:.8;flex:none}
-.slot.role-empty,.sw.role-empty {border:1px dashed var(--semantic-border-divider);color:var(--semantic-text-secondary);background:var(--primitive-color-paper)}
-.slot.role-cargo,.sw.role-cargo {background:var(--primitive-color-navy-soft);color:var(--primitive-color-ink)}
-.slot.role-target,.sw.role-target {background:var(--primitive-color-navy);color:var(--primitive-color-white)}
-.slot.role-rehandle,.sw.role-rehandle {background:var(--primitive-color-orange-soft);color:var(--primitive-color-warning-ink);border:2px dashed var(--primitive-color-orange-dark)}
-.yard-side {display:flex;flex-direction:column;gap:var(--primitive-space-2)}
-.zone {border:1px solid var(--semantic-border-divider);border-radius:var(--primitive-radius-control);padding:var(--primitive-space-2);font-size:var(--primitive-font-caption);display:flex;flex-direction:column;gap:2px;overflow-wrap:anywhere}
-.zone b {font-size:var(--primitive-font-label)}
-.zone .tagline {color:var(--semantic-text-secondary)}
+.sw.role-cargo {background:var(--primitive-color-navy-soft);color:var(--primitive-color-ink)}
+.sw.role-target {background:var(--primitive-color-navy);color:var(--primitive-color-white)}
+.sw.role-rehandle {background:var(--primitive-color-orange-soft);color:var(--primitive-color-warning-ink);border:2px dashed var(--primitive-color-orange-dark)}
 .yard-legend-rows {grid-column:1/-1;display:flex;flex-wrap:wrap;gap:var(--primitive-space-2) var(--primitive-space-4);list-style:none;margin:0;padding:0;font-size:var(--primitive-font-caption);color:var(--semantic-text-secondary)}
 .sw {display:inline-block;width:14px;height:12px;border-radius:3px;margin-right:var(--primitive-space-1);vertical-align:-2px}
 .yard-panel .operations-source {margin:var(--primitive-space-3) 0 0;overflow-wrap:anywhere}
@@ -138,7 +118,6 @@
   .obs-chip > summary {white-space:nowrap}
   .account button {white-space:nowrap}
 }
-@media (prefers-reduced-motion:reduce) {.yard-row {transition:none}}
 /* Priority tiers (KAN-116): 긴급 · 우선 · 일반 lanes with the simulated retrieval order */
 .queue-lane header strong {font-size:var(--primitive-font-body)}
 .queue-lane.tier-1 {border-left:4px solid var(--primitive-color-orange-dark)}
@@ -154,3 +133,45 @@
 .scenario-other {padding-top:var(--primitive-space-2);border-top:1px solid var(--semantic-border-divider)}
 .tier-choice div:has(> div > label > input[type=radio]) {display:flex;flex-wrap:wrap;gap:var(--primitive-space-2) var(--primitive-space-6);margin:var(--primitive-space-2) 0}
 .tier-choice div:has(> label > input[type=radio]) {min-height:44px;padding:0}
+/* Site map by slots (KAN-115): trays left · ship lanes · trays right, conveyor below; each slot lists its levels */
+.site-frame {container-type:inline-size}
+.site-map {display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--primitive-space-3) var(--primitive-space-4);align-items:start}
+.site-left {grid-column:1}.site-center {grid-column:2}.site-right {grid-column:3}
+.site-map:not(:has(> .site-side)) .site-center {grid-column:1/-1}
+.site-side,.site-center {display:flex;flex-direction:column;gap:var(--primitive-space-3);min-width:0}
+.site-yard,.site-tray {border:1px solid var(--semantic-border-divider);border-radius:var(--primitive-radius-panel);padding:var(--primitive-space-2);background:var(--semantic-surface-canvas)}
+.site-yard h4,.site-tray h4 {display:flex;justify-content:space-between;gap:var(--primitive-space-2);margin:0 0 var(--primitive-space-2);font-size:var(--primitive-font-label)}
+.site-yard h4 small,.site-tray h4 small {color:var(--semantic-text-secondary);font-weight:400}
+.yard-lanes {display:grid;gap:var(--primitive-space-2);grid-template-columns:repeat(3,minmax(0,1fr))}
+.yard-lanes.lanes-1 {grid-template-columns:minmax(0,1fr)}.yard-lanes.lanes-2 {grid-template-columns:repeat(2,minmax(0,1fr))}.yard-lanes.lanes-4 {grid-template-columns:repeat(4,minmax(0,1fr))}
+.yard-lanes.lanes-5,.yard-lanes.lanes-6 {grid-template-columns:repeat(3,minmax(0,1fr))}
+.yard-lane {display:flex;flex-direction:column;gap:var(--primitive-space-2);min-width:0}
+.lane-label {font-size:var(--primitive-font-caption);font-weight:700;color:var(--semantic-text-secondary);text-align:center}
+.tray-slots {display:grid;grid-auto-flow:column;grid-auto-columns:5.25rem;gap:var(--primitive-space-2)}  /* wide enough for '비어 있음' on one line */
+.site-center .tray-slots {grid-auto-columns:minmax(0,1fr)}  /* the conveyor stays a bar under the yard */
+.slot-card {position:relative;display:flex;flex-direction:column;gap:3px;min-height:7.5rem;padding:var(--primitive-space-2);border:1px solid var(--semantic-border-control);border-radius:var(--primitive-radius-control);background:var(--semantic-surface-panel);font-size:var(--primitive-font-caption);transition:box-shadow .2s;min-width:0}
+.site-yard .slot-card,.site-tray .slot-card {min-height:10.75rem}  /* one size for every 1×3 slot: three levels fit even when each wraps its note */
+.site-yard span.slot-level {min-height:28px;align-content:center}
+.site-center .site-tray .slot-card {min-height:2.4rem}
+.slot-card.empty {border-style:dashed;color:var(--semantic-text-secondary)}
+.slot-card.focus {box-shadow:0 0 0 3px var(--primitive-color-teal);border-color:var(--primitive-color-teal-dark)}
+.slot-name {font-weight:700;color:var(--semantic-text-secondary)}
+.slot-level {display:flex;flex-wrap:wrap;align-items:baseline;gap:2px var(--primitive-space-1);padding:2px var(--primitive-space-1);border-radius:4px;font-family:ui-monospace,monospace;overflow-wrap:anywhere}
+.slot-level b {font-family:var(--semantic-type-family, inherit);font-weight:600;color:var(--semantic-text-secondary)}
+.slot-level small {font-family:inherit}
+.slot-level.role-cargo {background:var(--primitive-color-navy-soft)}
+.slot-level.role-target {background:var(--primitive-color-navy);color:var(--primitive-color-white)}
+.slot-level.role-target b {color:var(--primitive-color-white)}
+.slot-level.role-rehandle {background:var(--primitive-color-orange-soft);color:var(--primitive-color-warning-ink);outline:2px dashed var(--primitive-color-orange-dark);outline-offset:-2px}
+.slot-empty {position:absolute;inset:0;display:grid;place-items:center;white-space:nowrap;pointer-events:none}  /* the card's true centre, under its name */
+/* Too narrow for both trays beside a yard whose slots are at least tray-wide: stack them, and keep the yard's
+   slots near their wide size (the conveyor matches the yard). */
+@container (max-width:889px) {.site-map {grid-template-columns:minmax(0,1fr)}.site-left,.site-center,.site-right {grid-column:1}.site-yard,.site-center > .site-tray {width:min(100%,30rem)}}
+button.slot-level {width:100%;min-height:36px;justify-content:flex-start;text-align:left;border:0;color:var(--semantic-text-primary);font-weight:400;white-space:normal;cursor:pointer}
+button.slot-level.role-target {color:var(--primitive-color-white)}
+button.slot-level.role-rehandle {color:var(--primitive-color-warning-ink)}
+button.slot-level[aria-pressed=true] {outline:3px solid var(--primitive-color-orange-dark);outline-offset:1px}
+.slot-drop {width:100%;min-height:36px;margin-top:auto;padding:var(--primitive-space-1);font-size:var(--primitive-font-caption)}
+.slot-drop[data-drop-state=valid] {background:var(--primitive-color-teal-soft);color:var(--primitive-color-teal-dark);border:1px dashed var(--primitive-color-teal-dark)}
+.slot-drop[data-drop-state=invalid] {color:var(--semantic-text-secondary)}
+@media (prefers-reduced-motion:reduce) {.slot-card {transition:none}}

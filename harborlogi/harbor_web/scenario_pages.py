@@ -30,9 +30,9 @@ class ScenarioForm(forms.Form):
 @require_http_methods(['GET', 'POST'])
 def scenarios(request):
     form, errors = ScenarioForm(request.POST or None, request.FILES or None), []
-    live = settings.MODE == 'live'
+    live, dims = settings.MODE == 'live', scenario_import.site_dims()
     if request.method == 'POST' and not live and form.is_valid():
-        scenario, errors = scenario_import.parse_workbook(form.cleaned_data['workbook'].read())
+        scenario, errors = scenario_import.parse_workbook(form.cleaned_data['workbook'].read(), dims)
         if scenario is not None:
             try:
                 observation, orders = scenario_import.import_scenario(request.user, scenario, name=form.cleaned_data['name'])
@@ -44,14 +44,14 @@ def scenarios(request):
                                           f'(입고 {inbound} · 반출 {len(orders) - inbound}). 입고 위치는 알고리즘이 계산했고, 결정을 기다립니다.')
                 return redirect(f'/?observation={observation.pk}')
     history = Audit.objects.filter(action='scenario.import').select_related('actor').order_by('-pk')[:20]
-    return page(request, 'scenarios.html', section='cargo', form=form, errors=errors, history=history, live=live,
+    return page(request, 'scenarios.html', section='cargo', form=form, errors=errors, history=history, live=live, dims=dims,
                 can_import=has_role(request.user, 'admin') and has_role(request.user, 'operator'))
 
 
 @require_roles('operator', 'admin')
 @require_http_methods(['GET'])
 def scenario_template(request):
-    response = HttpResponse(scenario_import.template_workbook(),
+    response = HttpResponse(scenario_import.template_workbook(scenario_import.site_dims()),
                             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     response['Content-Disposition'] = 'attachment; filename="harbor-scenario-template.xlsx"'
     return response

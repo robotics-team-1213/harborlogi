@@ -7,6 +7,7 @@
   {% if errors %}<div class="notice" role="alert"><strong>파일을 등록하지 않았습니다 · {{ errors|length }}건</strong><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
   {{ form.as_div }}
   <div class="actions"><button type="submit">시나리오 등록</button></div>
+  <p class="helptext">지금 야드: {{ dims.rows }}행{% if dims.slots > 1 %} × 한 행 {{ dims.slots }}자리(칸){% endif %} · {{ dims.levels }}층. 「초기 배치」의 행 · 칸 · 층은 이 범위 안이어야 합니다.</p>
   <p class="helptext">한 번에 모두 등록하고, 하나라도 틀리면 아무것도 만들지 않습니다. 이후 시간차로 들어오는 이벤트는 다음 단계에서 다룹니다.</p>
 </form>{% endif %}
 <section class="panel scenario-history" aria-labelledby="scenario-history-title">

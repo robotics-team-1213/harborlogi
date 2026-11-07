@@ -13,7 +13,7 @@
       <h3>{{ route.cargo_id }} · {{ route.role }}</h3>
       {% if route.kind == 'intake-recommendation' %}<p>추천 위치: {{ route.route_label }}</p>{% if not route.observed_source %}<p class="muted">관측된 출발 위치 없음 · 픽업 이동을 생성하지 않은 배치 추천입니다.</p>{% endif %}
       {% else %}<p>{{ route.route_label }}</p>{% endif %}
-      {% if route.footprint_revision %}<p class="muted">크기 원본 #{{ route.footprint_revision }}{% if route.shape.length_cells %} · {{ route.shape.length_cells }}칸 화물 1개{% endif %}</p>{% endif %}
+      {% if route.footprint_revision and not explanation.slots %}<p class="muted">크기 원본 #{{ route.footprint_revision }}{% if route.shape.length_cells %} · {{ route.shape.length_cells }}칸 화물 1개{% endif %}</p>{% endif %}
       {% if route.steps %}
       <ol>{% for step in route.steps %}<li>{{ step.number }}단계 · {{ step.phase }} · {{ step.source.label }} → {{ step.destination.label }} · 담당 팔 {{ step.primary_arm|default:'미지정' }}{% if step.alternate_arms %} · 대안 팔 {{ step.alternate_arms|join:', ' }}{% endif %}</li>{% endfor %}</ol>
       {% endif %}

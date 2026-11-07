@@ -6,7 +6,7 @@ HarborLogi 관리자는 구역을 추가·삭제하고 각 구역의 표시 이�
 
 편집은 설치 기준 Condition을 복제한 초안이다. 검증 후 새 Condition을 등록하며 기존 관측·계획·명령은 당시 Condition을 계속 참조한다. 등록 시 빈 관측을 만들거나 기존 화물 좌표를 새 맵의 사실로 옮기지 않는다. 새 기준의 계획은 새 기준으로 수집한 전체 관측이 필요하다. Django의 기존 불변 모델과 JSON payload를 사용하며 별도 활성 맵 전환은 만들지 않는다.
 
-기존 `yard_layout`, `spatial_areas`, `temporary_bays`, `outbound_stand`를 유지한다. `storage_areas`는 일반 보관 구역 집합, `area_presentation`은 구역별 `{label,x,y}` 표시 좌표다. 표시 좌표는 로봇 좌표가 아니다. 구역 사각형은 화면에서 겹치지 않는다. 예전 payload에는 기본 보관 구역과 자동 표시 배치를 적용한다.
+기존 `yard_layout`, `spatial_areas`, `temporary_bays`, `outbound_stand`를 유지한다. `storage_areas`는 일반 보관 구역 집합, `area_presentation`은 구역별 `{label,x,y}` 표시 좌표다. 표시 좌표는 로봇 좌표가 아니다. 구역 사각형은 화면에서 겹치지 않는다. 예전 payload에는 기본 보관 구역과 자동 표시 배치를 적용한다. 선택 키 `slot_cells`는 고정 컨테이너 자리의 폭(칸 수)이다. 값이 있으면 모든 구역의 열 수가 그 배수여야 하고, 계획은 자리 경계에서만 화물을 놓으며 화면은 자리 단위로 보인다(ADR 0026). 맵 편집은 이 값을 그대로 복제한다.
 
 ## 편집과 검증
 

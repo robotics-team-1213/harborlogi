@@ -9,6 +9,7 @@ def placement_context(plan):
     from harbor_web.workspace import plan_changes
     from harbor_web.views import reason_text
     from harbor_web.plan_explanation import explain_plan
+    from harbor_web.yard_rows import place_context, placement_text
     source = services.spatial_snapshot(plan.observation)
     target = plan.order.cargo.code
     stages = [present_stage(dict(spatial_yard_view(source, target=target), index=0,
@@ -18,6 +19,12 @@ def placement_context(plan):
         stages.append(present_stage(dict(spatial_yard_view(projected, target=target), index=1,
             panel_id=f'placement-{plan.pk}-1', label='자동 추천 배치 · 실제 관측 아님', phase='입고 추천'), plan.condition.payload))
     previous = Plan.objects.filter(pk=plan.result.get('previous_plan_id'), order_id=plan.order_id).first()
+    labels, slot = place_context(plan.condition.payload)
+
+    def where(placement):
+        return placement_text(placement, labels, slot) if placement else None
+    alternatives = [dict(alternative, place=where(alternative['placement'])) for alternative in plan.result.get('alternatives', [])]
     return dict(order=plan.order, plan=plan, plan_reason=reason_text(plan.result['reason']),
+        recommendation_place=where(plan.result.get('recommendation')), alternatives=alternatives,
         yard_stages=stages, observation_stage=stages[0], yard_scene=scene_for(stages), previous_plan=previous,
         plan_changes=plan_changes(plan.order, plan), plan_explanation=explain_plan(plan))

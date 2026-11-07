@@ -1,4 +1,4 @@
-import {mountLinkedGrid, selectionFor, atPosition} from './yard-selection.mjs';
+import {mountLinkedGrid, selectionFor, atPosition, slotLabel} from './yard-selection.mjs';
 import {cloneBoxes, transit, moveBox, placementFromWorld} from './yard-model.mjs';
 import {DraftSession} from './yard-draft.mjs';
 
@@ -66,6 +66,7 @@ export async function mountYardViewer(figure) {
       else { error.textContent = '구역 안의 격자 위치로 옮겨주세요.'; renderer.setBoxes(draft); }
     }, onError: () => { destroy(); fallback(figure); },
   });
+  const slotCells = scene.slot_cells || 0;  // a site with fixed 1×3 slots (KAN-115) names slots, not cells
   function stop() {
     if (draft && animation) {
       progress.dataset.phase = '중지 · 최종 가상 배치'; progress.dataset.progress = '100';
@@ -115,10 +116,12 @@ export async function mountYardViewer(figure) {
     const box = boxes().find(b => b.id === selected);
     const base = scene.frames[index].boxes.find(b => b.id === selected);
     cargo.value = box ? box.id : '';
-    info.textContent = box ? box.id + ' · ' + box.label + (!draft && scene.rehandle?.includes(box.id) ? ' (재취급 예정 · 계획 기준)' : '') + ' · ' + box.size + ' · ' + box.orientation + '도 · ' +
-      (draft ? '가상: ' + box.area + ' / ' + box.row + '행 ' + box.column + '열 ' + box.level + '층 · 기준: ' + base.positions.join(' / ') : box.positions.join(' / '))
-      : location ? `${scene.kind === 'map-definition' ? '미관측 위치 · 점유 확인 안 됨' : '빈 위치'} · ${location.area} · ${location.row}행 ${location.column}열 ${location.level}층 · 화물 아님`
-        : '박스나 화물 목록을 선택해 크기·위치를 확인하세요.';
+    // With fixed slots the size, turn and covered cells never change, so only the slot is named.
+    const where = box && (slotCells ? (draft ? '가상: ' + slotLabel(scene.areas, box, slotCells) + ' · 기준: ' + slotLabel(scene.areas, base, slotCells) : slotLabel(scene.areas, box, slotCells))
+      : box.size + ' · ' + box.orientation + '도 · ' + (draft ? '가상: ' + box.area + ' / ' + box.row + '행 ' + box.column + '열 ' + box.level + '층 · 기준: ' + base.positions.join(' / ') : box.positions.join(' / ')));
+    info.textContent = box ? box.id + ' · ' + box.label + (!draft && scene.rehandle?.includes(box.id) ? ' (재취급 예정 · 계획 기준)' : '') + ' · ' + where
+      : location ? `${scene.kind === 'map-definition' ? '미관측 위치 · 점유 확인 안 됨' : slotCells ? '빈 자리' : '빈 위치'} · ${slotCells ? slotLabel(scene.areas, location, slotCells) : `${location.area} · ${location.row}행 ${location.column}열 ${location.level}층`} · 화물 아님`
+        : `박스나 화물 목록을 선택해 ${slotCells ? '' : '크기·'}위치를 확인하세요.`;
     if (location && scene.kind === 'map-definition') status(info.textContent);
     for (const name of ['area','row','column','level','orientation']) editor.elements[name].value = box ? box[name] : '';
     editor.querySelector('fieldset').disabled = !box || playing;
@@ -137,7 +140,7 @@ export async function mountYardViewer(figure) {
   }
   function fillCargo() {
     cargo.replaceChildren(new Option('화물 선택', ''));
-    boxes().forEach(box => cargo.add(new Option(box.id + ' · ' + box.size + ' · ' + box.label, box.id)));
+    boxes().forEach(box => cargo.add(new Option(box.id + (slotCells ? '' : ' · ' + box.size) + ' · ' + box.label, box.id)));
     details();
   }
   function paint(values) {
