@@ -1,0 +1,15 @@
+{% extends 'base.html' %}{% block title %}시나리오 등록{% endblock %}{% block content %}
+<div class="page-head"><div><h1>시나리오 등록</h1><p>시험 시나리오의 입고 · 반출 이벤트를 엑셀 한 파일로 미리 모두 등록합니다. 입고 위치는 알고리즘이 계산하고, 사람이 결정합니다.</p></div><a class="button quiet" href="/scenarios/template.xlsx">양식 내려받기</a></div>
+<nav class="tabs" aria-label="화물·요청"><a href="/requests/">업무 요청</a><a href="/cargo/">화물</a><a href="/scenarios/" aria-current="page">시나리오</a></nav>
+{% if live %}<div class="notice"><strong>운영 연결 환경에서는 열지 않습니다</strong><p>시나리오는 합성 관측을 만들기 때문에 개발 · 시험 환경에서만 등록합니다.</p></div>
+{% elif not can_import %}<div class="notice"><strong>등록에는 관리자와 업무 담당 역할이 함께 필요합니다</strong><p>초기 배치 관측(관리자)과 요청(업무 담당)을 한 번에 만들기 때문입니다.</p></div>
+{% else %}<form class="form-panel" method="post" enctype="multipart/form-data">{% csrf_token %}
+  {% if errors %}<div class="notice" role="alert"><strong>파일을 등록하지 않았습니다 · {{ errors|length }}건</strong><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+  {{ form.as_div }}
+  <div class="actions"><button type="submit">시나리오 등록</button></div>
+  <p class="helptext">한 번에 모두 등록하고, 하나라도 틀리면 아무것도 만들지 않습니다. 이후 시간차로 들어오는 이벤트는 다음 단계에서 다룹니다.</p>
+</form>{% endif %}
+<section class="panel scenario-history" aria-labelledby="scenario-history-title">
+  <div class="panel-h"><h3 id="scenario-history-title">등록한 시나리오</h3><span class="scope">최근 20건</span></div>
+  {% if history %}<div class="table-wrap"><table><thead><tr><th scope="col">이름</th><th scope="col">초기 배치 관측</th><th scope="col">요청</th><th scope="col">등록</th></tr></thead><tbody>{% for item in history %}<tr><td>{{ item.detail.name }}</td><td><a href="/?observation={{ item.object_id }}">관측 #{{ item.object_id }}</a><small>초기 배치 {{ item.detail.layout }}개</small></td><td>입고 {{ item.detail.inbound }} · 반출 {{ item.detail.outbound }}</td><td>{{ item.created_at|date:'m-d H:i' }}<small>{{ item.actor.username }}</small></td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="panel-b muted">아직 등록한 시나리오가 없습니다.</p>{% endif %}
+</section>{% endblock %}

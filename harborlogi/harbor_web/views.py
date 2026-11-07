@@ -92,6 +92,11 @@ def overview(request):
                 row.update(action='입고 추천·변경 근거 확인', reason=reason_text(plan.result['reason']),
                     status=plan.result['status'], status_label='입고 배치 추천' if plan.result['status'] == 'READY' else '입고 배치 보류',
                     href=f'/plans/{plan.pk}/')
+                from harbor_web.inbound_decision import placement_decision
+                if plan.result['status'] == 'READY' and plan.order_version == order.version:
+                    decided = placement_decision(plan)
+                    row.update(status_label='입고 위치 결정됨' if decided else '입고 결정 대기',
+                               action='결정 내용 보기' if decided else '추천 위치 결정')
         changes = plan_changes(order, plan, current_queue_digest=current_queue_digest)
         if changes:
             row.update(status='HOLD', status_label='계획 재검토', reason=changes[0]['message'], action='최신 기준으로 검토', href=f'/requests/{order.pk}/')

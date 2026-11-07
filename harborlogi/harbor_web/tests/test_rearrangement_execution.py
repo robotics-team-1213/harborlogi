@@ -229,14 +229,18 @@ class RearrangementExecutionTests(TestCase):
                 executor.tick(registry=object(), now=self.now)
             self.assertEqual(check.call_count, 1)
 
-    def test_page_shows_state_and_toggles(self):
+    def test_page_has_no_parameter_entry_and_only_switches_off(self):
+        # KAN-119: rearrangement follows the inbound scenario; no k / move / hour / daily inputs remain.
         self.client.force_login(self.operator)
-        self.assertContains(self.client.get('/rearrangement/'), '꺼짐 또는 만료')
-        response = self.client.post('/rearrangement/', dict(action='enable', k=2, max_moves=6, hours=8, daily_limit=20))
-        self.assertRedirects(response, '/rearrangement/', fetch_redirect_response=False)
-        self.assertContains(self.client.get('/rearrangement/'), '켜짐')
+        page = self.client.get('/rearrangement/').content.decode()
+        for removed in ('name="k"', 'name="max_moves"', 'name="daily_limit"', '허용 켜기'):
+            self.assertNotIn(removed, page)
+        self.assertEqual(self.client.post('/rearrangement/', dict(action='enable', k=2, max_moves=6, hours=8, daily_limit=20)).status_code, 302)
+        self.assertIsNone(rearrangement.current_authorization())
+        self.authorize()
+        self.assertContains(self.client.get('/rearrangement/'), '자동 실행 끄기')
         self.client.post('/rearrangement/', dict(action='disable'))
-        self.assertContains(self.client.get('/rearrangement/'), '꺼짐 또는 만료')
+        self.assertNotContains(self.client.get('/rearrangement/'), '자동 실행 끄기')
         self.client.force_login(self.admin)
         self.assertEqual(self.client.post('/rearrangement/', dict(action='disable')).status_code, 403)
 
