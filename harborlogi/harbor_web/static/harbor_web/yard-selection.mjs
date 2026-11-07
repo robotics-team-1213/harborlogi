@@ -214,6 +214,14 @@ export function mountLinkedGrid(preview, scene, onSelect, inspectDestination = (
       column.append(...items); map.append(column);
     }
     frame.append(map); grid.append(basis, frame);
+    if (mode !== 'map-definition') {
+      const legend = document.createElement('ul'); legend.className = 'yard-legend-rows'; legend.setAttribute('aria-label', '자리 평면 범례');
+      for (const [role, text] of [['target', '반출 대상'], ['rehandle', '재취급 예정'], ['cargo', '화물']]) {
+        const item = document.createElement('li'), swatch = document.createElement('i');
+        swatch.className = `sw role-${role}`; swatch.setAttribute('aria-hidden', 'true'); item.append(swatch, text); legend.append(item);
+      }
+      grid.append(legend);
+    }
   }
   function slotArea(area, isYard) {
     const section = document.createElement('section'); section.className = isYard ? 'site-yard' : 'site-tray';
@@ -257,10 +265,13 @@ export function mountLinkedGrid(preview, scene, onSelect, inspectDestination = (
     button.setAttribute('aria-pressed', String(selected?.cargoId === box.id));
     if (area.levels > 1) { const tier = document.createElement('b'); tier.textContent = `${level}층`; button.append(tier, ' '); }
     button.append(box.id);
-    for (const [shown, text] of [[role === 'target', '반출 대상'], [role === 'rehandle', '재취급'], [partial, '일부 칸']]) {
-      if (!shown) continue;
-      const note = document.createElement('small'); note.textContent = text; button.append(note);
+    // The role is the colour (named in the legend and the tooltip), so every level stays one line.
+    const roleText = {target:'반출 대상', rehandle:'재취급 예정'}[role];
+    if (roleText) {
+      const note = document.createElement('small'); note.className = 'sr-only'; note.textContent = ' ' + roleText;
+      button.append(note); button.title = roleText;
     }
+    if (partial) { const note = document.createElement('small'); note.textContent = '일부 칸'; button.append(note); }
     if (planned) button.dataset.rehandle = box.id;
     button.addEventListener('click', () => pick(identity));
     return button;
