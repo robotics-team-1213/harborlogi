@@ -129,10 +129,15 @@ class Order(Authored):
     version = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     updated_at = models.DateTimeField(auto_now=True)
 
+    @property
+    def tier_label(self):
+        """긴급 · 우선 · 일반 for priority_group 1 · 2 · 3; older groups above 3 read as 일반 (KAN-116)."""
+        return {1: '긴급', 2: '우선'}.get(self.priority_group, '일반')
+
     class Meta:
         constraints = [
             models.CheckConstraint(condition=models.Q(priority_group__gt=0, sequence__gt=0, version__gt=0), name='order_positive_versions'),
-            models.CheckConstraint(condition=models.Q(cargo__isnull=False) | models.Q(kind='REARRANGE'), name='order_cargo_unless_rearrange'),
+            models.CheckConstraint(condition=models.Q(cargo__isnull=False) | models.Q(kind='REARRANGE'), name='order_cargo_unless_rearrange', violation_error_message='입고·반출 요청은 화물을 선택해야 합니다.'),
             models.UniqueConstraint(fields=['priority_group', 'sequence'], condition=models.Q(kind='OUTBOUND', tie_policy='FIXED'), name='fixed_order_sequence_unique'),
         ]
 

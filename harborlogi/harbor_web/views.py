@@ -119,7 +119,10 @@ def overview(request):
             if row['href'].startswith(('/requests/', '/plans/')):
                 row['href'] += f'?observation={observation.pk}'
     from harbor_web.operations import operations_context
-    return page(request, 'overview.html', section='overview', rows=rows, operations=operations_context(observation), observations=observations,
+    operations = operations_context(observation)
+    for job in operations['workload']['plans']:  # the timeline panel shows the last recorded facts of each listed job
+        job['facts'] = build_timeline(job['plan'].order)['actual_line'][-4:]
+    return page(request, 'overview.html', section='overview', rows=rows, operations=operations, observations=observations,
                 observation=observation, condition=observation.condition if observation else None,
                 field_pending=FieldEpisode.objects.filter(state='OPEN').count())
 
@@ -164,7 +167,7 @@ def cargo_footprint(request, pk):
         from django.core.exceptions import PermissionDenied
         raise PermissionDenied
     current_footprint = CargoFootprint.objects.filter(cargo=cargo).order_by('-pk').first()
-    form = forms.FootprintForm(request.POST or None, initial={'length_cells': current_footprint.length_cells if current_footprint else 1})
+    form = forms.FootprintForm(request.POST or None, initial={'length_cells': current_footprint.length_cells if current_footprint else 3})
     if request.method == 'POST' and form.is_valid():
         try:
             services.register_footprint(request.user, cargo_id=pk, **form.cleaned_data)
@@ -218,8 +221,26 @@ def outbound_queue(request):
         rows.append(dict(order=order, plan=plan, command=command, status_label=label,
             status=command.state if command else 'HOLD' if changes else plan.result['status'] if plan else '',
             reason='원래 실행의 상태와 업무 근거를 대조하세요.' if command else changes[0]['message'] if changes else reason_text(plan.result['reason']) if plan else '관측 재고를 선택해 재취급·반출·복귀를 검토하세요.'))
+    lanes = services.outbound_lanes() if not q else []
+    if lanes:
+        from harbor_web.tier_simulation import tier_recommendations
+        simulated_on = observation or Observation.objects.select_related('condition').order_by('-pk').first()
+        recommendations = tier_recommendations(simulated_on, lanes)
+        for lane in lanes:
+            lane['recommendation'] = recommendations.get(lane['group'])
     return page(request, 'outbound_queue.html', section='outbound', rows=rows, q=q,
-                observation=observation, lanes=services.outbound_lanes() if not q else [], **pagination)
+                observation=observation, lanes=lanes, **pagination)
+
+
+def parse_entries(members):
+    """Read ``12:3,14:1`` (order id : expected version); an empty string is an empty tier; None when malformed."""
+    orders = []
+    for item in members.split(',') if members else []:
+        order_id, _, version = item.partition(':')
+        if not (order_id.isascii() and order_id.isdigit() and version.isascii() and version.isdigit()):
+            return None
+        orders.append((int(order_id), int(version)))
+    return orders
 
 
 def parse_lanes(values):
@@ -229,12 +250,9 @@ def parse_lanes(values):
         policy, _, members = value.partition('|')
         if policy not in {'FIXED', 'ANY'}:
             return None
-        orders = []
-        for item in members.split(','):
-            order_id, _, version = item.partition(':')
-            if not (order_id.isascii() and order_id.isdigit() and version.isascii() and version.isdigit()):
-                return None
-            orders.append((int(order_id), int(version)))
+        orders = parse_entries(members)
+        if orders is None:
+            return None
         lanes.append(dict(fixed=policy == 'FIXED', orders=orders))
     return lanes or None
 
@@ -254,6 +272,22 @@ def outbound_reorder(request):
 
 
 @require_roles('operator')
+@require_http_methods(['POST'])
+def outbound_tier_apply(request):
+    """Fix one tier to a simulated scenario's order (추천 순서로 시행 / 이 시나리오로 교체)."""
+    group, orders = request.POST.get('group', ''), parse_entries(request.POST.get('order', ''))
+    if group not in {'1', '2', '3'} or not orders:
+        return HttpResponseBadRequest('적용할 순서 형식이 올바르지 않습니다.')
+    try:
+        changed = services.apply_tier_order(request.user, group=int(group), orders=orders)
+    except (services.Conflict, ValidationError):
+        return render(request, 'error.html', dict(heading='반출 대기열이 바뀌었습니다', reason='시나리오를 계산한 뒤 대기열이 바뀌었습니다. 다시 불러와 최신 추천을 확인하세요.', return_url='/outbound/'), status=409)
+    name = dict(services.TIERS)[int(group)]
+    messages.success(request, f'{name} 단계를 고른 순서로 정했습니다. 순서가 바뀐 요청 {len(changed)}건은 계획을 다시 검토합니다.' if changed else f'{name} 단계가 이미 이 순서입니다.')
+    return redirect('/outbound/#queue-editor')
+
+
+@require_roles('operator')
 @require_http_methods(['GET', 'POST'])
 def order_new(request):
     observation = selected_observation(request)
@@ -262,13 +296,13 @@ def order_new(request):
         if not request.GET['cargo'].isascii() or not request.GET['cargo'].isdigit():
             raise Http404('Invalid cargo.')
         initial['cargo'] = get_object_or_404(Cargo, pk=request.GET['cargo'])
-    if initial.get('kind') != 'INBOUND':
-        initial.update(priority_group=services.next_outbound_group(), sequence=1)  # back of the outbound queue
     suffix = f'?observation={observation.pk}' if observation else ''
     form = forms.OrderForm(request.POST or None, initial=initial)
     if request.method == 'POST' and form.is_valid():
         data = dict(form.cleaned_data)
         make_first = data.pop('make_first')
+        if data.get('sequence') is None:  # last in its tier unless a script sends a sequence
+            data['priority_group'], data['sequence'] = services.back_of_tier(data['priority_group'], data['kind'])
         try:
             with transaction.atomic():
                 obj = services.create_order(request.user, **data)
@@ -311,6 +345,9 @@ def order_detail(request, pk):
                     data = dict(active.cleaned_data)
                     if 'title' not in request.POST:  # older clients without the field keep the title
                         data['title'] = None
+                    if data.get('sequence') is None:  # same tier keeps its place; a new tier puts it last
+                        data['sequence'] = order.sequence if data['priority_group'] == order.priority_group else \
+                            services.back_of_tier(data['priority_group'], order.kind)[1]
                     services.update_order(request.user, order_id=pk, **data)
                 else:
                     data = active.cleaned_data

@@ -5,17 +5,16 @@
 {% if observation %}<p class="notice info">새 검토 원본: {{ observation.source_id }} / {{ observation.source_revision }} · #{{ observation.pk }}. 저장된 계획은 당시 원본을 유지합니다.</p>{% endif %}
 <form method="get" class="toolbar">{% if observation %}<input type="hidden" name="observation" value="{{ observation.pk }}">{% endif %}<label for="outbound-search">화물·지시 메모 검색<input id="outbound-search" name="q" value="{{ q }}" type="search" maxlength="200" placeholder="화물 ID, 이름 또는 지시 메모"></label><button class="quiet" type="submit">검색</button>{% if q %}<a href="/outbound/{% if observation %}?observation={{ observation.pk }}{% endif %}">검색 해제</a>{% endif %}</form>
 {% if lanes %}<section class="queue-editor" id="queue-editor" data-queue-editor aria-labelledby="queue-title">
-  <div class="section-heading"><h2 id="queue-title">반출 순서</h2><span class="muted">위 묶음부터 처리 · 묶음 안은 위에서 아래로</span></div>
-  {% if can_operate %}<p class="helptext" data-queue-tools hidden>카드를 끌어 놓거나 ▲▼·맨 앞으로 버튼으로 순서를 바꾼 뒤 ‘순서 저장’을 누르세요. 아래 빈 칸에 놓으면 새 묶음이 됩니다. 순서가 바뀐 요청은 새 revision이 되어 계획을 다시 검토합니다.</p>{% endif %}
-  <form method="post" action="/outbound/reorder/">{% csrf_token %}
-    {% include 'queue_lanes.html' with editable=can_operate %}
-    {% if can_operate %}<div class="queue-new-lane" data-queue-new-lane hidden>여기에 놓으면 맨 뒤에 새 묶음을 만듭니다</div>
+  <div class="section-heading"><h2 id="queue-title">반출 순서 · 우선순위 단계</h2><span class="muted">긴급 → 우선 → 일반 · 단계 안은 위에서 아래로</span></div>
+  {% if can_operate %}<p class="helptext" data-queue-tools hidden>카드를 끌어 다른 단계로 옮기거나 ▲▼·맨 앞으로 버튼으로 순서를 바꾼 뒤 ‘순서 저장’을 누르세요. 요청이 두 건 이상인 단계는 추천 시나리오를 함께 보여 줍니다.</p>{% endif %}
+  {% include 'queue_lanes.html' with editable=can_operate %}
+  {% if can_operate %}<form method="post" action="/outbound/reorder/" data-queue-form>{% csrf_token %}
     {% for lane in lanes %}<input type="hidden" name="lane" value="{% if lane.fixed %}FIXED{% else %}ANY{% endif %}|{% for order in lane.orders %}{{ order.pk }}:{{ order.version }}{% if not forloop.last %},{% endif %}{% endfor %}">{% endfor %}
-    <div class="actions" data-queue-tools hidden><button type="submit">순서 저장</button><a class="button quiet" href="/outbound/">되돌리기</a><span class="muted" role="status" data-queue-status></span></div>{% endif %}
-  </form>
+    <div class="actions" data-queue-tools hidden><button type="submit">순서 저장</button><a class="button quiet" href="/outbound/">되돌리기</a><span class="muted" role="status" data-queue-status></span></div>
+  </form>{% endif %}
 </section>{% endif %}
 {% if rows %}<div class="table-wrap"><table class="action-table"><caption>반출 업무 {{ page.paginator.count }}건 · 완료 수를 뜻하지 않음</caption><thead><tr><th scope="col">요청·대상 화물</th><th scope="col">검토 상태</th><th scope="col">필요한 판단</th><th scope="col">업무 열기</th></tr></thead><tbody>
-{% for row in rows %}<tr><td><a class="cargo-link" href="/requests/{{ row.order.pk }}/{% if observation %}?observation={{ observation.pk }}{% endif %}">{{ row.order.title|default:row.order.cargo.code }}</a><small>{{ row.order.cargo.code }} {{ row.order.cargo.name }} · 요청 #{{ row.order.pk }} · v{{ row.order.version }}</small><small>그룹 {{ row.order.priority_group }} / {{ row.order.sequence }}순위 · {% if row.order.tie_policy == 'ANY' %}그룹 안 선택 허용{% else %}순서 고정{% endif %}</small></td><td><span class="badge {{ row.status }}">{{ row.status_label }}</span></td><td>{{ row.reason }}</td><td><a href="/requests/{{ row.order.pk }}/{% if observation %}?observation={{ observation.pk }}{% endif %}">야드·계획·근거 확인</a></td></tr>{% endfor %}
+{% for row in rows %}<tr><td><a class="cargo-link" href="/requests/{{ row.order.pk }}/{% if observation %}?observation={{ observation.pk }}{% endif %}">{{ row.order.title|default:row.order.cargo.code }}</a><small>{{ row.order.cargo.code }} {{ row.order.cargo.name }} · 요청 #{{ row.order.pk }} · v{{ row.order.version }}</small><small>{{ row.order.tier_label }} · {{ row.order.sequence }}번째 · {% if row.order.tie_policy == 'ANY' %}단계 안 선택 허용{% else %}순서 고정{% endif %}</small></td><td><span class="badge {{ row.status }}">{{ row.status_label }}</span></td><td>{{ row.reason }}</td><td><a href="/requests/{{ row.order.pk }}/{% if observation %}?observation={{ observation.pk }}{% endif %}">야드·계획·근거 확인</a></td></tr>{% endfor %}
 </tbody></table></div>{% include 'pagination.html' %}
 {% else %}<section class="empty"><h2>{% if q %}검색 결과가 없습니다{% else %}반출 지시를 등록하세요{% endif %}</h2><p>{% if q %}다른 화물 ID나 이름으로 찾아보세요.{% else %}등록된 화물에 반출 지시와 우선순위를 연결하면 야드 관측을 기준으로 재취급을 검토할 수 있습니다.{% endif %}</p>{% if can_operate and not q %}<div class="actions"><a class="button" href="/requests/new/?kind=OUTBOUND">반출 요청 등록</a><a href="/cargo/">화물 확인</a></div>{% endif %}</section>{% endif %}
 {% endblock %}

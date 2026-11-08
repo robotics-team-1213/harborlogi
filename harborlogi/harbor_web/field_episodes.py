@@ -1,4 +1,4 @@
-"""Field episodes: assignment, CLEAR confirmation, and departure intent."""
+"""Field episodes: assignment, CLEAR confirmation, departure intent and its inbound trip (ADR 0029)."""
 from datetime import timedelta
 
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from harbor.model import aware_time
 from harbor_web.models import Order, Audit, FieldEpisode, FieldConfirmation, DepartureIntent
+from harbor_web.intake_loop import prepare_trip
 from harbor_web.service_common import Conflict, _domain, _role, _save
 
 
@@ -80,6 +81,10 @@ def prepare_departure(actor, *, episode_id, confirmation_id, now=None):
             or confirmation.actor_id != episode.assigned_to_id or episode.version != confirmation.version + 1):
         raise ValidationError('Current assigned field user must explicitly confirm CLEAR.')
     _role(confirmation.actor, 'field')
-    _fresh(confirmation.observed_at, timezone.now() if now is None else now)
-    return _save(actor, DepartureIntent(created_by=actor, actor=actor, episode=episode, confirmation=confirmation,
-                                        vehicle_id=episode.vehicle_id, cargo=episode.order.cargo), 'departure.prepare')
+    now = timezone.now() if now is None else now
+    _fresh(confirmation.observed_at, now)
+    intent = _save(actor, DepartureIntent(created_by=actor, actor=actor, episode=episode, confirmation=confirmation,
+                                          vehicle_id=episode.vehicle_id, cargo=episode.order.cargo), 'departure.prepare')
+    # ADR 0029: the trip declares the cargo code; the executor proposes it and a named operator admits it in ROSY.
+    _domain(lambda: prepare_trip(intent, now=now))
+    return intent

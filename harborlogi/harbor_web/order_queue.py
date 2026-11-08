@@ -12,11 +12,20 @@ from harbor_web.models import Audit, Command, Order
 from harbor_web.service_common import Conflict, _role
 
 
+TIERS = ((1, '긴급'), (2, '우선'), (3, '일반'))  # priority_group 1·2·3 (KAN-116); smaller leaves first
+
+
+def tier_of(group):
+    """Groups above 3 predate the three tiers; they read and move as 일반."""
+    return min(group, len(TIERS))
+
+
 def _queue_policy(order):
     if order.kind != 'OUTBOUND':
         return
     peers = Order.objects.filter(kind='OUTBOUND', priority_group=order.priority_group).exclude(pk=order.pk)
-    if peers.exclude(tie_policy=order.tie_policy).exists():
+    # A finished order has left the queue, so only open peers must share the tier's policy.
+    if peers.filter(pk__in=open_outbound_orders()).exclude(tie_policy=order.tie_policy).exists():
         raise ValidationError('All members of a priority group must use the same policy.')
     if order.tie_policy == 'FIXED' and peers.filter(sequence=order.sequence).exists():
         raise ValidationError('Fixed group sequence must be unique.')
@@ -77,18 +86,25 @@ def update_order(actor, *, order_id, expected_version, priority_group, sequence,
 
 
 def outbound_lanes():
-    """Open outbound orders as ordered lanes: one lane per priority group, sequence order inside."""
-    lanes = []
+    """The three tiers in order with their open outbound orders by (group, sequence); empty tiers stay."""
+    lanes = [dict(group=group, name=name, fixed=True, orders=[]) for group, name in TIERS]
     for order in open_outbound_orders().select_related('cargo').order_by('priority_group', 'sequence', 'pk'):
-        if not lanes or lanes[-1]['group'] != order.priority_group:
-            lanes.append(dict(group=order.priority_group, fixed=order.tie_policy == 'FIXED', orders=[]))
-        lanes[-1]['orders'].append(order)
+        lanes[tier_of(order.priority_group) - 1]['orders'].append(order)
+    for lane in lanes:
+        lane['fixed'] = all(order.tie_policy == 'FIXED' for order in lane['orders'])
     return lanes
 
 
-def next_outbound_group():
-    """The group a new outbound order takes to go to the back of the queue."""
-    return (Order.objects.filter(kind='OUTBOUND').aggregate(top=Max('priority_group'))['top'] or 0) + 1
+def back_of_tier(group, kind='OUTBOUND'):
+    """(group, sequence) that puts a new order last in its tier."""
+    top = Order.objects.filter(kind=kind, priority_group=group).aggregate(top=Max('sequence'))['top'] or 0
+    return group, top + 1
+
+
+def _closed_sequence_top(group):
+    """Finished fixed orders keep their (group, sequence) slot; renumbering starts above it."""
+    return Order.objects.filter(kind='OUTBOUND', priority_group=group, tie_policy='FIXED').exclude(
+        pk__in=open_outbound_orders()).aggregate(top=Max('sequence'))['top'] or 0
 
 
 def _kept_lane_targets(lanes, current):
@@ -116,37 +132,34 @@ def _kept_lane_targets(lanes, current):
 @serialized
 @transaction.atomic
 def reorder_outbound(actor, *, lanes):
-    """Apply ordered lanes to every open outbound order in one revision step.
+    """Renumber every open outbound order from the three tier lanes in one revision step.
 
-    ``lanes`` is ``[dict(fixed=bool, orders=[(order_id, expected_version), ...]), ...]`` and must list each
-    open outbound order exactly once. Lanes that still hold today's groups in order keep their group numbers;
-    otherwise lane i becomes group ``closed_top + i + 1`` so a finished order's slot is never reused. Only
-    orders whose group, sequence or tie policy changes get a new revision and an audit row.
+    ``lanes`` is three ``dict(fixed=bool, orders=[(order_id, expected_version), ...])`` for 긴급 · 우선 · 일반
+    and must list each open outbound order exactly once; a tier may be empty. Position j in tier g becomes
+    (g, j) above any finished order's slot. Only orders whose group, sequence or tie policy changes get a
+    new revision and an audit row.
     """
     _role(actor, 'operator')
+    if len(lanes) != len(TIERS):
+        raise Conflict('The queue has three tiers.')
     entries = [(order_id, version) for lane in lanes for order_id, version in lane['orders']]
-    if not lanes or any(not lane['orders'] for lane in lanes):
-        raise Conflict('Every lane must hold at least one request.')
     ids = [order_id for order_id, _ in entries]
     current = {order.pk: order for order in open_outbound_orders().select_related('cargo').select_for_update()}
     if len(set(ids)) != len(ids) or set(ids) != set(current):
         raise Conflict('The outbound queue changed; reload before reordering.')
     if any(current[order_id].version != version for order_id, version in entries):
         raise Conflict('Order changed; reload before reordering.')
-    closed_top = Order.objects.filter(kind='OUTBOUND').exclude(pk__in=current).aggregate(top=Max('priority_group'))['top'] or 0
-    target = _kept_lane_targets(lanes, current)
-    if target is None:
-        target = {}
-        for lane_index, lane in enumerate(lanes):
-            policy = 'FIXED' if lane['fixed'] else 'ANY'
-            for position, (order_id, _) in enumerate(lane['orders']):
-                target[order_id] = (closed_top + lane_index + 1, position + 1, policy)
+    target = {}
+    for (group, _), lane in zip(TIERS, lanes):
+        policy, base = 'FIXED' if lane['fixed'] else 'ANY', _closed_sequence_top(group)
+        for position, (order_id, _) in enumerate(lane['orders'], start=1):
+            target[order_id] = (group, base + position, policy)
     changed = [order for order_id, order in current.items()
                if (order.priority_group, order.sequence, order.tie_policy) != target[order_id]]
     if not changed:
         return []
-    # Park changed orders above every live group first: the fixed-sequence constraint is checked per row.
-    park = closed_top + len(lanes) + len(current) + 1
+    # Park changed orders above every group first: the fixed-sequence constraint is checked per row.
+    park = max(Order.objects.filter(kind='OUTBOUND').aggregate(top=Max('priority_group'))['top'] or 0, len(TIERS)) + 1
     for offset, order in enumerate(changed):
         Order.objects.filter(pk=order.pk).update(priority_group=park + offset, sequence=1, tie_policy='FIXED')
     befores = {order.pk: request_snapshot(order) for order in changed}
@@ -167,13 +180,24 @@ def reorder_outbound(actor, *, lanes):
     return changed
 
 
+def _lane_entries():
+    return [dict(fixed=lane['fixed'], orders=[(order.pk, order.version) for order in lane['orders']])
+            for lane in outbound_lanes()]
+
+
 def move_outbound_to_front(actor, order):
-    """Put one open outbound order in its own first lane; the rest keep their lanes, one step back."""
-    lanes = [dict(fixed=True, orders=[(order.pk, order.version)])]
-    for lane in outbound_lanes():
-        members = [(item.pk, item.version) for item in lane['orders'] if item.pk != order.pk]
-        if members:
-            lanes.append(dict(fixed=lane['fixed'], orders=members))
+    """Put one open outbound order first in its own tier; everything else keeps its place."""
+    lanes = _lane_entries()
+    for lane in lanes:
+        lane['orders'] = [entry for entry in lane['orders'] if entry[0] != order.pk]
+    lanes[tier_of(order.priority_group) - 1]['orders'].insert(0, (order.pk, order.version))
+    return reorder_outbound(actor, lanes=lanes)
+
+
+def apply_tier_order(actor, *, group, orders):
+    """Fix one tier to a chosen retrieval order (a simulated scenario); the other tiers stay as they are."""
+    lanes = _lane_entries()
+    lanes[tier_of(group) - 1] = dict(fixed=True, orders=list(orders))
     return reorder_outbound(actor, lanes=lanes)
 
 

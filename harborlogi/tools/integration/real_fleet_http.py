@@ -53,6 +53,8 @@ def main(argv=None):
     mode.add_argument('--full-flow', action='store_true', help='Run the first flow stages on one Fleet serving TRIP and ARM (D-927)')
     mode.add_argument('--arm-via-r', action='store_true',
                       help='Run the neutral ARM test through integrated control R relaying to a separate cell Fleet (D-965)')
+    parser.add_argument('--via-r', action='store_true',
+                        help='With --full-flow: Harbor talks only to integrated control R; a separate cell Fleet owns the arms (D-965)')
     parser.add_argument('--report', type=Path, help='With --full-flow: write per-stage results as JSON here')
     parser.add_argument('--sim-arm', action='store_true',
                         help='With --arm-only: the platform MuJoCo cell owner instead of the synthetic owners (D-927 C4)')
@@ -60,6 +62,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.web_arm_only and args.app_python is None:
         parser.error('--web-arm-only requires --app-python')
+    if args.via_r and not args.full_flow:
+        parser.error('--via-r requires --full-flow')
     if args.sim_arm and not args.arm_only:
         parser.error('--sim-arm requires --arm-only')
     app_root = Path(__file__).resolve().parents[2]
@@ -76,6 +80,8 @@ def main(argv=None):
     with tempfile.TemporaryDirectory(prefix='harbor-http-integration-', ignore_cleanup_errors=True) as temporary:
         request_key_path = Path(temporary) / 'request-key' if args.web_arm_only else None
         fleet = (harness.RelayedArmFleet(root=args.platform_root, workdir=Path(temporary) / 'fleet') if args.arm_via_r else
+                 harness.RelayedFullFlowFleet(root=args.platform_root, workdir=Path(temporary) / 'fleet',
+                     request_keys=[f'{FULL_FLOW_KEY}:{move}' for move in range(len(FULL_FLOW_MOVES))]) if args.via_r else
                  harness.FullFlowFleet(root=args.platform_root, workdir=Path(temporary),
                      request_keys=[f'{FULL_FLOW_KEY}:{move}' for move in range(len(FULL_FLOW_MOVES))]) if args.full_flow else
                  harness.ArmFleet(root=args.platform_root, workdir=Path(temporary) / 'fleet', request_key_path=request_key_path,

@@ -59,7 +59,7 @@ jobs:
       - run: for t in tests/*.test.mjs; do node "$t" || exit 1; done
       - run: python tools/design_tokens.py --check
 
-  # Deployment is manual (deploy/compose/README.md); this only proves what would be deployed still builds.
+  # publish-image.yml pushes what this proves still builds (deploy/compose/README.md).
   compose-image:
     runs-on: ubuntu-22.04
     timeout-minutes: 15

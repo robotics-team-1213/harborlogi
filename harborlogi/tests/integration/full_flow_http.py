@@ -77,14 +77,14 @@ class FullFlow:
     def evidence(self, row):
         index = row['step_index']
         return fleet_move_evidence(self.client, self.moves[index], f'{KEY}:{index}', mission_id=row['mission_id'],
-                                   revision=1, arms=self.config['arms'], placement_source=SOURCES[0],
+                                   revision=1, placement_source=SOURCES[0],
                                    retreat_source=SOURCES[1])
 
     def final_evidence(self, row):
         # D-930: fresh facts about the outbound attempt measured after the last move.
         mission = row['outbound_mission_id']
         evidence = _wait(lambda: fleet_recheck_evidence(self.client, self.moves[1], f'{KEY}:1', KEY + ':final',
-            mission_id=mission, revision=1, arms=self.config['arms'], placement_source=SOURCES[0],
+            mission_id=mission, revision=1, placement_source=SOURCES[0],
             retreat_source=SOURCES[1]), lambda value: value is not None, 'recheck of ' + mission)
         self.notes.append('recheck CONFIRMED for outbound ' + mission)
         return evidence

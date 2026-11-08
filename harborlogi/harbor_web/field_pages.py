@@ -19,6 +19,10 @@ class ReassignForm(django_forms.Form):
     expected_version = django_forms.IntegerField(widget=django_forms.HiddenInput, min_value=1)
     assigned_to = django_forms.ModelChoiceField(label='새 현장 확인 담당', queryset=get_user_model().objects.filter(is_active=True, groups__name='field').distinct())
 
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('auto_id', 'id_reassign_%s')
+        super().__init__(*args, **kwargs)
+
 
 def episode_status(episode, *, now=None):
     confirmation = FieldConfirmation.objects.filter(episode=episode).select_related('actor').order_by('-pk').first()

@@ -24,7 +24,7 @@ def move_arms():
 def synthetic_evidence(evidence_id, mission, cargo, location, *, attempt="attempt-1", revision=3, when=NOW,
                        arms=("A", "B"), placement=None, retreat=None, arm=None):
     """Synthetic camera placement + platform retreat facts; no producer exists yet (D-856 P1)."""
-    facts = tuple(ArmRetreat(a, "zone-" + a, True, (0.0, 0.5), when, 4, True) for a in arms)
+    facts = tuple(ArmRetreat(a, "zone-" + a, True, when, 4, True) for a in arms)
     if arm:
         facts = (replace(facts[0], **arm),) + facts[1:]
     return MoveEvidence(
@@ -147,21 +147,28 @@ class WorkflowTests(unittest.TestCase):
                         {"arm": {"claim_released": False}}, {"arm": {"outside_zone": False}},
                         {"arm": {"pose_observed_at": NOW - timedelta(seconds=6)}},
                         {"arm": {"pose_observed_at": later}},
-                        {"arms": ("B",)}, {"arms": ()}):
+                        {"arms": ()}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 self.ledger.confirm("request-1", self.evidence(**changes), now=NOW)
         with self.assertRaises(ValueError):
             self.ledger.confirm("request-1", self.evidence().placement, now=NOW)
         self.assertEqual(self.ledger.read("request-1")["step_index"], 0)
-        # Step 0 may only use arm A, so a retreat record for A alone suffices.
-        self.ledger.confirm("request-1", self.evidence(arms=("A",)), now=NOW)
+        # Every arm that acted must show retreat, including a second one Fleet reports.
+        both = self.evidence(arms=("A", "B"))
+        stuck = replace(both.retreat, arms=(both.retreat.arms[0], replace(both.retreat.arms[1], outside_zone=False)))
+        with self.assertRaises(ValueError):
+            self.ledger.confirm("request-1", replace(both, retreat=stuck), now=NOW)
+        # Fleet switched to fallback arm B (ADR 0029, D3): only the arm that acted must show retreat.
+        self.ledger.confirm("request-1", self.evidence(arms=("B",)), now=NOW)
         self.assertEqual(self.ledger.read("request-1")["step_index"], 1)
 
-    def test_retreat_facts_reject_supply_arm_and_unmeasured_pose(self):
-        for changes in ({"arm": "S"}, {"joint_positions": ()}, {"joint_positions": (float("nan"),)},
-                        {"claim_released": 1}, {"pose_observed_at": NOW.replace(tzinfo=None)}):
+    def test_retreat_facts_reject_unlabelled_arm_and_implicit_verdicts(self):
+        for changes in ({"arm": ""}, {"claim_released": 1}, {"outside_zone": None},
+                        {"pose_observed_at": NOW.replace(tzinfo=None)}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
-                replace(ArmRetreat("A", "zone-A", True, (0.0,), NOW, 4, True), **changes)
+                replace(ArmRetreat("A", "zone-A", True, NOW, 4, True), **changes)
+        with self.assertRaises(TypeError):  # joint values are no longer Harbor data (ADR 0029)
+            ArmRetreat("A", "zone-A", True, (0.0,), NOW, 4, True)
         with self.assertRaises(ValueError):
             BusinessLedger(self.path, placement_sources=("same",), retreat_sources=("same",))
 
@@ -253,8 +260,9 @@ class WorkflowTests(unittest.TestCase):
         for wrong in (synthetic_evidence("final", "mission-2", "outbound", "temp"),
                       synthetic_evidence("final", "mission-2", "outbound", "stand", attempt="old"),
                       synthetic_evidence("final", "mission-3", "outbound", "stand"),
-                      # Every arm used across the request must have retreated, not only the last one.
-                      synthetic_evidence("final", "mission-2", "outbound", "stand", arms=("A",))):
+                      # Every arm Fleet reports for the outbound attempt must have retreated (ADR 0029, D3).
+                      synthetic_evidence("final", "mission-2", "outbound", "stand", arm={"outside_zone": False}),
+                      synthetic_evidence("final", "mission-2", "outbound", "stand", arms=())):
             with self.assertRaises(ValueError):
                 self.ledger.finish("request-1", wrong, now=NOW)
         self.ledger.finish("request-1", placement, now=NOW)

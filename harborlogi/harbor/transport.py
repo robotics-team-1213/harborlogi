@@ -20,6 +20,7 @@ class TripIntent:
     candidates: tuple[str, ...]
     destination: str
     via: tuple[str, ...] = ()
+    object_ref: str = ''  # Harbor cargo code ROSY carries unread onto the S job (ADR 0029); empty = none.
 
     def __post_init__(self):
         identifier(self.request_key)
@@ -34,6 +35,9 @@ class TripIntent:
             identifier(place)
             if len(place) > 64 or any(ord(c) < 32 for c in place):
                 raise ValueError("Invalid registered place reference")
+        if self.object_ref and (self.object_ref != self.object_ref.strip() or len(self.object_ref) > 128
+                                or any(ord(c) < 32 for c in self.object_ref)):
+            raise ValueError("Invalid cargo object reference")
 
     @property
     def steps(self):
@@ -80,17 +84,19 @@ class TransportLedger:
     @staticmethod
     def _intent(row):
         value = json.loads(row["payload"])
-        return TripIntent(row["request_key"], tuple(value["candidates"]), value["destination"], tuple(value["via"]))
+        return TripIntent(row["request_key"], tuple(value["candidates"]), value["destination"], tuple(value["via"]),
+                          value.get("object_ref", ""))
 
     def prepare(self, intent):
         if not isinstance(intent, TripIntent):
             raise ValueError("Expected an immutable transport intent")
-        payload = _json({"candidates": intent.candidates, "destination": intent.destination, "via": intent.via})
+        cargo = {"object_ref": intent.object_ref} if intent.object_ref else {}  # Older rows keep their bytes.
+        payload = _json({"candidates": intent.candidates, "destination": intent.destination, "via": intent.via, **cargo})
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
-            old = connection.execute("SELECT digest FROM transport_intents WHERE request_key=?",
+            old = connection.execute("SELECT digest, payload FROM transport_intents WHERE request_key=?",
                                      (intent.request_key,)).fetchone()
-            if old is not None and old["digest"] != intent.digest:
+            if old is not None and (old["digest"] != intent.digest or old["payload"] != payload):
                 raise ValueError("Transport request key conflicts with existing contents")
             connection.execute("INSERT OR IGNORE INTO transport_intents(request_key,payload,digest,state) "
                                "VALUES(?,?,?,'PLANNED')", (intent.request_key, payload, intent.digest))

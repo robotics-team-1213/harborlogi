@@ -1,6 +1,6 @@
 # Harbor 운영 설치 (Docker Compose)
 
-Harbor는 통합관제 R과 같은 운영 PC에 둔다. 지금은 OMX 관제 PC에 R과 함께 두고, R이 전용 PC로 옮기면 Harbor도 함께 옮긴다. 결정과 아직 수용되지 않은 조건은 [ADR 0021](../../docs/adr/0021-harbor-runs-beside-integrated-control-r.md)에 있다.
+Harbor는 OMX 관제 PC에서 돌리지 않는다. 지금은 모델 PC에 임시로 두고, R 전용 PC가 준비되면 함께 옮긴다. 이미지는 CI가 만들고 PC는 받아서 실행만 한다. 결정과 아직 수용되지 않은 조건은 [ADR 0021](../../docs/adr/0021-harbor-runs-beside-integrated-control-r.md)에 있다.
 
 이 폴더의 구성은 R·CELL-A와 섞이지 않는다. Compose project 이름(`harbor`), 공개 포트, 데이터 volume(`harbor_harbor-data`), TLS 인증서, R이 발급한 서비스 principal을 각자 따로 둔다.
 
@@ -52,14 +52,32 @@ Waitress는 그대로 `127.0.0.1:8060`에서 듣는다. 호스트의 8060 포트
 
 ## 갱신
 
-팀 `main`에 병합된 커밋만 올린다. 그 커밋을 체크아웃하고 `HARBOR_IMAGE=harborlogi:<커밋 앞 12자리>`로 빌드·기동한다. 아래 갱신 순서를 따른다.
+PC에서 직접 빌드하지 않는다. 팀 `main`의 `test`가 통과하면 `publish-image` workflow가 이미지를 한 번 빌드해 `ghcr.io/robotics-team-1213/harborlogi:<커밋>`과 `:main`으로 올린다. Harbor PC의 `harbor-autoupdate.timer`가 5분마다 새 digest를 확인하고 다음 순서로 바꾼다.
 
-1. `docker compose stop harbor`로 실행기를 멈춘다.
-2. 백업한다.
-3. `manage`로 migrate한다.
-4. `up -d`로 다시 띄운다.
+1. `harbor`와 `proxy`를 멈춘다.
+2. `/backup/auto-<UTC 시각>`에 짝 백업한다(최근 10개 유지).
+3. 새 이미지로 migrate한다.
+4. 새 이미지로 띄우고 health를 기다린다.
+5. 성공하면 `/etc/harbor/compose.env`의 `HARBOR_IMAGE`와 `/opt/harbor/current`를 바꾼다. 이미지와 release는 현재판과 직전판만 남긴다.
 
-되돌릴 때는 이전 이미지 태그로 같은 순서를 밟고, 백업에서 복원한다.
+실패하면 다음과 같이 처리한다.
+
+- **DB 스키마 변경 없음:** 직전 이미지로 돌아가고, 그 digest를 `/etc/harbor/autoupdate.failed`에 적어 다시 시도하지 않는다. 더 새로운 이미지가 나오면 다시 시도한다.
+- **DB 스키마 변경 있음, 또는 복귀 실패:** 멈춘 채 `/etc/harbor/autoupdate.hold`를 남긴다. 복원은 새 제출을 막아 사람의 대조가 필요하므로 자동으로 하지 않는다. 확인 후 백업에서 복원하고 이 파일을 지우면 다시 시작한다.
+
+점검을 위해 갱신을 멈추려면 이 hold 파일을 직접 만든다. 상태는 `journalctl -u harbor-autoupdate`로 본다.
+
+### 갱신 유닛 설치
+
+처음 설치 때 한 번만 한다. 이후 갱신기 코드는 이미지와 함께 바뀌지만, 유닛 파일이 바뀌면 다시 복사한다.
+
+```bash
+sudo cp /opt/harbor/current/harbor-autoupdate.{service,timer} /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now harbor-autoupdate.timer
+```
+
+`/opt/harbor/current`는 `/opt/harbor/releases/<digest 앞 12자>`를 가리키고, 그 안에 이미지의 `/app/deploy/compose`가 풀려 있어야 한다.
 
 ## 백업
 

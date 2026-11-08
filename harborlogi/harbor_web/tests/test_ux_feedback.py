@@ -22,10 +22,10 @@ class UxFeedbackTests(TestCase):
         for path in ('/', '/cargo/', '/outbound/'):
             self.assertContains(self.client.get(path), 'data-history-back hidden')
 
-    def test_overview_moves_shortcuts_to_the_action_section_as_buttons(self):
+    def test_overview_page_actions_are_buttons_as_in_the_control_mockup(self):
         html = self.client.get('/').content.decode()
-        self.assertNotIn('반출 관제 열기', html)
-        self.assertIn('<a class="button" href="/requests/new/">업무 요청 등록</a>', html)
+        self.assertIn('<a class="button quiet" href="/requests/new/">업무 요청 등록</a>', html)
+        self.assertIn('<a class="button" href="/outbound/">반출 관제 열기</a>', html)
         self.assertIn('class="attention-list"', html)
         self.assertNotIn('<span aria-hidden="true">→</span>', html)
 

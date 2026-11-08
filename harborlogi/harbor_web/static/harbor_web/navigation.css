@@ -9,8 +9,12 @@
 @media(min-width:901px) {
   .nav-compact .sidebar {width:var(--component-navigation-rail-width)}
   .nav-compact main:not(.signed-out) {margin-left:var(--component-navigation-rail-width)}
-  .nav-compact .sidebar a,.nav-compact .nav-density {justify-content:center}
-  .nav-compact .sidebar .nav-label {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .nav-compact .sidebar {padding-inline:var(--primitive-space-2)}
+  .nav-compact .nav-density {justify-content:center}
+  /* Rail (KAN-115 시안): icon with a short name under it, so the menu reads without hovering */
+  .nav-compact .sidebar a {flex-direction:column;justify-content:center;gap:2px;min-height:52px;padding:var(--primitive-space-1) 2px;text-align:center}
+  .nav-compact .sidebar .nav-label {font-size:var(--primitive-font-caption);font-weight:600;line-height:1.2;word-break:keep-all}
+  .nav-compact .nav-density .nav-label {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
   .nav-compact .sidebar-foot {display:none}
   .nav-compact .sidebar .utility {margin-top:var(--primitive-space-3)}
 }

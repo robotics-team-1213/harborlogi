@@ -8,6 +8,7 @@ from harbor_web import commands, forms, services
 from harbor_web.models import Audit, Command, Observation, Plan
 from harbor_web.yard_view import yard_view, spatial_yard_view
 from harbor_web.yard_occupancy import occupancy_map
+from harbor_web.yard_rows import yard_rows
 from harbor_web.yard_scene import present_stage, scene_for
 
 
@@ -153,6 +154,8 @@ def workspace_context(order, plan=None, *, priority_form=None, plan_form=None, r
         pipeline=pipeline_for(order, plan, command, detail), review_observation=review_observation,
         review_differs=bool(plan and review_observation and plan.observation_id != review_observation.pk),
         source=source, latest_source=latest, yard_stages=stages, yard_scene=scene, yard_occupancy=occupancy, display_moves=moves,
+        yard_rows=yard_rows(source, targets={order.cargo.code} if order.cargo_id and order.kind == 'OUTBOUND' else (),
+                            rehandles=occupancy['rehandle_cargo'] if occupancy else ()),
         plan_explanation=explain_plan(plan) if plan else None,
         plan_changes=changes, different_execution_plan=different, decision=decision,
         gate=gate, gate_reason=gate_text(gate['reason']), plan_reason=reason_text(plan.result['reason']) if plan else '',

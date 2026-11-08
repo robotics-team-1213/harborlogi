@@ -1,3 +1,6 @@
+import os
+import sqlite3
+
 from django import forms
 from django.contrib import messages
 from django.core.exceptions import ValidationError
@@ -6,6 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.http import Http404
 from django.views.decorators.http import require_http_methods
 
+from harbor.ledger import ReadOnlyLedger
 from harbor_web import commands, human_evidence, services
 from harbor_web.auth import has_role, require_roles
 from harbor_web.models import Command, Plan
@@ -122,6 +126,28 @@ def work_list(request):
     for command in context['page']:
         command.display_state = COMMAND_LABELS.get(command.state, '원래 실행 대조 필요')
     return page(request, 'work.html', section='work', q=q, state=state, **context)
+
+
+@require_roles('viewer', 'operator', 'admin', 'field')  # same roles as work_detail, which narrows field staff
+@require_http_methods(['GET'])
+def notification_work(request, notification_id):
+    """Open a HOLD notification link on the protected business screen (ADR 0029).
+
+    The opaque outbox id resolves through the same read-only ledger the workbench
+    uses; authenticated operators land on the command's existing work screen.
+    """
+    path = os.environ.get('HARBOR_LEDGER_PATH', '')
+    if not path:  # A deployment gap must not look like a bad link.
+        return render(request, 'error.html', dict(heading='업무 장부가 설정되지 않았습니다', reason='배포 설정(HARBOR_LEDGER_PATH)이 없어 통지가 가리키는 업무를 열 수 없습니다. 설정·연동 담당자가 확인해야 합니다.', return_url='/work/'), status=503)
+    try:
+        row = ReadOnlyLedger(path).read(notification_id)
+    except (KeyError, ValueError, OSError, sqlite3.Error):
+        raise Http404('통지가 가리키는 업무를 찾지 못했습니다.')
+    command = (Command.objects.filter(key=row['request_key'][len('harbor:'):]).first()
+               if row['request_key'].startswith('harbor:') else None)
+    if command is None:
+        raise Http404('통지가 가리키는 업무를 찾지 못했습니다.')
+    return redirect(f'/work/{command.pk}/')
 
 
 @require_roles('viewer', 'operator', 'admin', 'field')

@@ -33,6 +33,13 @@ status=0
 nice -n 15 timeout 1800 "$WORK/venv/bin/python" -m tools.integration.real_fleet_http \
   --platform-root "$RUN/platform" --platform-sha "$SHA" --full-flow --report "$REPORT" > "$WORK/reports/$STAMP.log" 2>&1 || status=$?
 echo "harbor $(git -C "$RUN/harbor" rev-parse HEAD) platform $SHA exit $status report $REPORT"
+# The same flow through integrated control R (D-965); either failure fails the night.
+via_r=0
+nice -n 15 timeout 1800 "$WORK/venv/bin/python" -m tools.integration.real_fleet_http \
+  --platform-root "$RUN/platform" --platform-sha "$SHA" --full-flow --via-r --report "$WORK/reports/$STAMP-via-r.json" \
+  > "$WORK/reports/$STAMP-via-r.log" 2>&1 || via_r=$?
+echo "via-r exit $via_r report $WORK/reports/$STAMP-via-r.json"
+[ "$via_r" = 0 ] || status=$via_r
 # Keep two weeks of reports.
 find "$WORK/reports" -type f -mtime +14 -delete
 exit "$status"

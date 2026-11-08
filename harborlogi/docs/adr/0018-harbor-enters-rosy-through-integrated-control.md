@@ -52,7 +52,7 @@ Harbor 문서는 "Fleet HTTP"라고만 적었고, 연결 설정은 origin 하나
 | 2 양 끝 HTTP | 플랫폼 시험에서 실제 Fleet 앱 둘(R·셀)로 확인 |
 | 3 Harbor 통합 시험 | 공개 SHA `ed455ea`로 모델 PC에서 `--arm-via-r` 11/11, 기본·`--full-flow` 통과(2026-11-04). 게시 전 SHA에서는 17/18(1회 HOLD, 원인 미확인). [검증 기록](../validation/2026-11-03-arm-via-integrated-control.md) |
 
-R은 증거·recheck도 셀의 관제 단위 API로 전달하고, 셀 운영자 화면에 요청한 앱(`delegated_by`)을 보여 준다. 조건 2·3은 시험 PC에서 충족됐다. 남은 것은 R 중계의 `physical-evidence`·`rechecks`(v1.359 착지 대기)와 현장 수용이다. 현장 R↔CELL-A 연결은 플랫폼 D-960 수용 조건으로 남는다.
+R은 증거·recheck도 셀의 관제 단위 API로 전달하고, 셀 운영자 화면에 요청한 앱(`delegated_by`)을 보여 준다. 조건 2·3은 시험 PC에서 충족됐다. R 중계의 `physical-evidence`·`rechecks`는 API v1.356으로 공개 main에 들어갔고 `--arm-via-r`로 확인했다([2026-11-06 기록](../validation/2026-11-06-evidence-through-r.md)). 남은 것은 현장 R·CELL-A 갱신과 현장 수용이다. 현장 R↔CELL-A 연결은 플랫폼 D-960 수용 조건으로 남는다.
 
 ## 대안
 

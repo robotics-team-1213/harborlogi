@@ -1,0 +1,57 @@
+name: publish-image
+
+# A green team main becomes one image; Harbor hosts pull it by digest (deploy/compose/README.md).
+on:
+  workflow_run:
+    workflows: [test]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-image
+
+jobs:
+  publish:
+    # The copy of this file in the course repository never runs.
+    if: >-
+      github.repository == 'robotics-team-1213/harborlogi' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success'))
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      REPOSITORY: ghcr.io/robotics-team-1213/harborlogi
+      COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ env.COMMIT }}
+          persist-credentials: false
+      - name: Build and push
+        id: push
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker build -f harborlogi/deploy/compose/Dockerfile \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${COMMIT}" \
+            -t "${REPOSITORY}:${COMMIT}" -t "${REPOSITORY}:main" harborlogi
+          docker run --rm "${REPOSITORY}:${COMMIT}" python -c "import harbor_web.manage"
+          docker push "${REPOSITORY}:${COMMIT}"
+          docker push "${REPOSITORY}:main"
+          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "${REPOSITORY}:${COMMIT}")"
+          echo "digest=${digest#*@}" >> "$GITHUB_OUTPUT"
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.REPOSITORY }}
+          subject-digest: ${{ steps.push.outputs.digest }}

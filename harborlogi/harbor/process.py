@@ -233,7 +233,8 @@ def bind_plan(proposal: OutboundProposal,
                 raise ValueError("Ambiguous process binding")  # Same arm twice for one move.
             entries.append(binding)
     try:
-        # Per-arm entries resolve to the primary (first installed) arm's binding.
+        # Per-arm entries resolve to the primary (first installed) arm's binding. ROSY's ArmTransferJobCreate
+        # still requires instance_id, so it is sent, but Fleet owns fallback switching and nothing checks it later.
         return tuple(by_move[(m.cargo_id, m.source, m.destination)][0] for m in proposal.moves)
     except KeyError as exc:
         raise ValueError("A move has no installed process binding") from exc
