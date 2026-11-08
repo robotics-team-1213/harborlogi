@@ -1,12 +1,13 @@
 from contextlib import closing
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
-import math
 import sqlite3
 
 from harbor.ledger import business_row, plan_payload as _payload
+from harbor.hold_notify import (OUTBOX_SCHEMA, new_notification_id, record_hold, screen_url,
+                                validated_screen_base)
 from harbor.model import YARD_ARMS, aware_time, identifier, identifiers, revision
 from harbor.process import ArmTransferBinding, ProcessBinding
 from harbor.execution import read_arm_execution, prepare_execution, submit_execution, read_cell_execution
@@ -48,24 +49,23 @@ class PlacementEvidence:
 
 @dataclass(frozen=True)
 class ArmRetreat:
-    """One yard arm's retreat facts (퇴피): Fleet zone-claim release and an owner-measured pose."""
+    """Retreat facts (퇴피) of one arm that acted, as Fleet reports them: zone release and clearance verdict.
+
+    Fleet chooses which arm acts (ADR 0029 decision 6), so `arm` is an opaque participant label
+    and Harbor stores no joint values.
+    """
     arm: str
     zone_id: str
     claim_released: bool
-    joint_positions: tuple[float, ...]
     pose_observed_at: datetime
     pose_revision: int
-    outside_zone: bool  # The platform's FK verdict; Harbor does not compute kinematics.
+    outside_zone: bool  # The platform's verdict; Harbor does not compute kinematics.
 
     def __post_init__(self):
-        if self.arm not in YARD_ARMS:
-            raise ValueError("Retreat evidence covers yard arms A/B only")
+        identifier(self.arm)
         identifier(self.zone_id)
         if type(self.claim_released) is not bool or type(self.outside_zone) is not bool:
             raise ValueError("Physical facts must be explicit booleans")
-        if (not isinstance(self.joint_positions, tuple) or not self.joint_positions
-                or not all(type(v) in (int, float) and math.isfinite(v) for v in self.joint_positions)):
-            raise ValueError("Expected measured finite joint positions")
         aware_time(self.pose_observed_at)
         revision(self.pose_revision)
 
@@ -87,7 +87,7 @@ class HumanArmRetreat:
 
 @dataclass(frozen=True)
 class RetreatEvidence:
-    """Platform-data retreat record for the arms a step may have used; no camera is involved."""
+    """Platform-data retreat record for the arms that acted in a step; no camera is involved."""
     evidence_id: str
     mission_id: str
     attempt_id: str
@@ -112,7 +112,8 @@ class MoveEvidence:
 
 class BusinessLedger:
     def __init__(self, path, *, placement_sources, retreat_sources, freshness=timedelta(seconds=5),
-                 human_placement_sources=(), human_retreat_sources=(), human_freshness=timedelta(minutes=5)):
+                 human_placement_sources=(), human_retreat_sources=(), human_freshness=timedelta(minutes=5),
+                 notify_expiry=timedelta(hours=1), screen_base=None, clock=None):
         identifiers(placement_sources)
         identifiers(retreat_sources)
         identifiers(human_placement_sources)
@@ -121,11 +122,15 @@ class BusinessLedger:
         if (not placement_sources or not retreat_sources
                 or sum(len(set(group)) for group in every) != len(set().union(*every))
                 or not isinstance(freshness, timedelta) or freshness <= timedelta(0)
-                or not isinstance(human_freshness, timedelta) or human_freshness <= timedelta(0)):
+                or not isinstance(human_freshness, timedelta) or human_freshness <= timedelta(0)
+                or not isinstance(notify_expiry, timedelta) or notify_expiry <= timedelta(0)):
             raise ValueError("Separate configured placement and retreat sources and positive freshness are required")
         self.path, self.freshness, self.human_freshness = str(path), freshness, human_freshness
         self.placement_sources, self.retreat_sources = placement_sources, retreat_sources
         self.human_placement_sources, self.human_retreat_sources = human_placement_sources, human_retreat_sources
+        self.notify_expiry = notify_expiry
+        self._screen_base = validated_screen_base(screen_base)
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._reads = {}
         with closing(self._connect()) as c, c:
             c.executescript("""
@@ -134,19 +139,37 @@ class BusinessLedger:
                     state TEXT NOT NULL, step_index INTEGER NOT NULL DEFAULT 0,
                     row_version INTEGER NOT NULL DEFAULT 0,
                     mission_id TEXT, attempt_id TEXT, goal_confirmed INTEGER NOT NULL DEFAULT 0,
-                    outbound_mission_id TEXT, outbound_attempt_id TEXT);
+                    outbound_mission_id TEXT, outbound_attempt_id TEXT,
+                    hold_sequence INTEGER NOT NULL DEFAULT 0);
                 CREATE TABLE IF NOT EXISTS evidence (
                     source_id TEXT NOT NULL, evidence_id TEXT NOT NULL, payload TEXT NOT NULL,
                     PRIMARY KEY(source_id,evidence_id));
-            """)
+            """ + OUTBOX_SCHEMA)
             c.execute("BEGIN IMMEDIATE")
             columns = {r[1] for r in c.execute("PRAGMA table_info(business)")}
             if "row_version" not in columns:
                 c.execute("ALTER TABLE business ADD COLUMN row_version INTEGER NOT NULL DEFAULT 0")
+            if "hold_sequence" not in columns:
+                c.execute("ALTER TABLE business ADD COLUMN hold_sequence INTEGER NOT NULL DEFAULT 0")
             for old in ("mission_id", "attempt_id"):  # ADR 0005 names; rows keep their values.
                 if "target_" + old in columns:
                     c.execute(f"ALTER TABLE business RENAME COLUMN target_{old} TO outbound_{old}")
-            c.execute("UPDATE business SET state='HOLD',row_version=row_version+1 WHERE state='SUBMITTING'")
+            # Restart recovery is itself a HOLD occurrence (D-997); one outbox row per request.
+            for row in c.execute("SELECT request_key FROM business WHERE state='SUBMITTING'").fetchall():
+                c.execute("UPDATE business SET state='HOLD',row_version=row_version+1 "
+                          "WHERE request_key=? AND state='SUBMITTING'", (row[0],))
+                self._notify_hold(c, row[0], "SUBMITTING", self._clock())
+
+    def _notify_hold(self, c, key, previous_state, now):
+        """Record one HOLD occurrence in the caller's transaction (D-997; never on HOLD → HOLD)."""
+        if previous_state == "HOLD":
+            return
+        sequence = self._row(c, key)["hold_sequence"] + 1
+        c.execute("UPDATE business SET hold_sequence=? WHERE request_key=?", (sequence, key))
+        notification = new_notification_id()
+        record_hold(c, key, sequence, notification_id=notification, now=now,
+                    expires_at=now + self.notify_expiry,
+                    screen_url=screen_url(self._screen_base, notification))
 
     def _connect(self):
         c = sqlite3.connect(self.path, timeout=10)
@@ -181,7 +204,7 @@ class BusinessLedger:
         if sum(m.cargo_id == outbound_id for m in moves) != 1 or not any(
                 m.cargo_id == outbound_id and m.destination == outbound_stand for m in moves):
             raise ValueError("Expected exactly one outbound move to the outbound stand")
-        # Primary then alternates per step; every arm a step may use must later show retreat.
+        # Primary then alternates per step, kept for display; Fleet picks the arm that acts (ADR 0029).
         if (not isinstance(move_arms, tuple) or len(move_arms) != len(moves)
                 or not all(isinstance(a, tuple) and a and set(a) <= set(YARD_ARMS) and len(set(a)) == len(a)
                            for a in move_arms)):
@@ -221,8 +244,11 @@ class BusinessLedger:
             mission_id = execution.mission_id
         except BaseException:
             with closing(self._connect()) as c, c:
-                c.execute("UPDATE business SET state='HOLD',row_version=row_version+1 "
-                          "WHERE request_key=? AND state='SUBMITTING' AND row_version=?", (key, intent_version))
+                entered = c.execute("UPDATE business SET state='HOLD',row_version=row_version+1 "
+                                    "WHERE request_key=? AND state='SUBMITTING' AND row_version=?",
+                                    (key, intent_version)).rowcount
+                if entered:
+                    self._notify_hold(c, key, "SUBMITTING", self._clock())
             raise
         with closing(self._connect()) as c, c:
             c.execute("BEGIN IMMEDIATE")
@@ -243,8 +269,9 @@ class BusinessLedger:
     def hold(self, key):
         with closing(self._connect()) as c, c:
             c.execute('BEGIN IMMEDIATE')
-            self._row(c, key)
+            row = self._row(c, key)
             c.execute("UPDATE business SET state='HOLD',row_version=row_version+1 WHERE request_key=?", (key,))
+            self._notify_hold(c, key, row["state"], self._clock())
 
     def resume_arm(self, key, client, *, now):
         """Re-enter WAITING from a bookkeeping HOLD after reconciling the original request key.
@@ -290,6 +317,8 @@ class BusinessLedger:
             c.execute('UPDATE business SET mission_id=?,attempt_id=?,goal_confirmed=?,state=?,'
                       'row_version=row_version+1 WHERE request_key=?',
                       (execution.mission_id, attempt, int(confirmed), state, key))
+            if state == 'HOLD':
+                self._notify_hold(c, key, row['state'], now)
         if progressing:
             self._reads[key] = (execution.mission_id, attempt, now, row['row_version'] + 1)
         return execution
@@ -304,14 +333,17 @@ class BusinessLedger:
             return self._reconcile_arm(key, client, row, now=now)
         execution = read_cell_execution(client, row['mission_id'], f"{key}:{row['step_index']}")
         attempt, confirmed = execution.attempt_id, execution.goal_confirmed
+        state = "HOLD" if execution.held else "WAITING"
         with closing(self._connect()) as c, c:
             c.execute("BEGIN IMMEDIATE")
             self._check_current(c, key, row)
             c.execute("UPDATE business SET attempt_id=?,goal_confirmed=?,state=?,row_version=row_version+1 WHERE request_key=?",
-                      (attempt, int(confirmed), "HOLD" if execution.held else "WAITING", key))
+                      (attempt, int(confirmed), state, key))
+            if state == "HOLD":
+                self._notify_hold(c, key, row["state"], now)
         self._reads[key] = (row["mission_id"], attempt, now, row["row_version"] + 1)
 
-    def _validate(self, row, evidence, now, *, mission_id, attempt_id, cargo_id, location, arms):
+    def _validate(self, row, evidence, now, *, mission_id, attempt_id, cargo_id, location):
         aware_time(now)
         payload = _payload(row)
         if not isinstance(evidence, MoveEvidence):
@@ -334,9 +366,10 @@ class BusinessLedger:
         if placement.cargo_id != cargo_id or placement.location != location:
             raise ValueError("Placement evidence does not show the cargo at its destination")
         bound(retreat, RetreatEvidence, self.human_retreat_sources if human else self.retreat_sources)
-        by_arm = {a.arm: a for a in retreat.arms}
-        for arm in arms:
-            fact = by_arm.get(arm)
+        # Only the arms that acted must show retreat; Fleet owns fallback switching (ADR 0029, D3).
+        if not retreat.arms:
+            raise ValueError("Retreat evidence names no arm that acted")
+        for fact in retreat.arms:
             if human:
                 ok = (isinstance(fact, HumanArmRetreat) and fact.outside_zone_seen
                       and fact.attested_by == placement.attested_by)
@@ -371,8 +404,7 @@ class BusinessLedger:
                 raise ValueError("Fresh Fleet reconciliation is required")
             move = payload["moves"][row["step_index"]]
             self._validate(row, evidence, now, mission_id=row["mission_id"], attempt_id=row["attempt_id"],
-                           cargo_id=move["cargo_id"], location=move["destination"],
-                           arms=payload["move_arms"][row["step_index"]])
+                           cargo_id=move["cargo_id"], location=move["destination"])
             self._save_evidence(c, evidence)
             if move["cargo_id"] == payload["outbound_id"]:
                 c.execute("UPDATE business SET outbound_mission_id=mission_id,outbound_attempt_id=attempt_id "
@@ -391,10 +423,8 @@ class BusinessLedger:
             payload = _payload(row)
             if row["state"] != "AWAITING_FINAL_EVIDENCE":
                 raise ValueError("Outbound placement and all restored moves are required")
-            # Related-arm retreat: every arm used by this outbound request (ADR 0005 decision 6).
-            related = tuple(sorted({a for arms in payload["move_arms"] for a in arms}))
             self._validate(row, evidence, now, mission_id=row["outbound_mission_id"],
                            attempt_id=row["outbound_attempt_id"], cargo_id=payload["outbound_id"],
-                           location=payload["outbound_stand"], arms=related)
+                           location=payload["outbound_stand"])
             self._save_evidence(c, evidence)
             c.execute("UPDATE business SET state='COMPLETED',row_version=row_version+1 WHERE request_key=?", (key,))

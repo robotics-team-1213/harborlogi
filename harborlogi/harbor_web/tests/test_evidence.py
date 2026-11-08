@@ -26,7 +26,7 @@ def observation_pair(mission, attempt, revision, cargo, location, arms, serial, 
     retreat = dict(evidence_id=f'obs-{serial}-r', mission_id=mission, attempt_id=attempt,
                    revision=revision, source_id=RETREAT_SOURCE, observed_at=when,
                    arms=[dict(arm=arm, zone_id=f'zone-{arm}', claim_released=True,
-                              joint_positions=[0.0, 0.0], pose_observed_at=when,
+                              pose_observed_at=when,
                               pose_revision=revision, outside_zone=True) for arm in arms])
     return placement, retreat
 

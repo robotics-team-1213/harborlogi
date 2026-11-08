@@ -1,6 +1,6 @@
 """Per-column occupancy and planned-rehandle marks, read from an already built observed stage."""
 STEP_CAP = 3  # Steps 0..3; step 3 means three or more levels.
-AREA_LABELS = {'yard': '장치 야드', 'temp': '임시 장치', 'stand': '반출대'}
+AREA_LABELS = {'yard': '장치 야드', 'temp': '임시 장치', 'temp_a': '임시 장치 A', 'temp_b': '임시 장치 B', 'stand': '반출대'}
 
 
 def _area(source, rehandle):

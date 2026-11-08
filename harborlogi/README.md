@@ -41,6 +41,8 @@ python -m harbor
 
 ## Harbor와 ROSY의 경계
 
+Harbor·통합관제 R·셀 관제·CORE/OMX owner·공통 Account/Monitoring/Media·학습·호스트의 상세 책임은 [Harbor와 ROSY의 책임](docs/responsibilities.md)에 정리한다([ADR0028](docs/adr/0028-control-units-device-owners-and-hosts.md)). 같은 PC에서 실행하는 것, 공통 사람 로그인, 작업 승인, 최종 장치 명령은 서로 다른 경계다. N100은 R의 목표이며 실제 이전·처리 용량·현장 수용 완료를 뜻하지 않는다.
+
 제품 웹은 저장된 요청·관측 revision으로 기존 계획 엔진의 재취급→반출→복귀 또는 공간/관측 HOLD를 계산한다. 기존 preview의 `/planning`은 고정 합성 입력이다. 실제 인증 관측 producer·입고 planner·전체 공정/현장 수용은 미완료이며 물리 receipt만으로 전체 업무를 완료하지 않는다.
 
 | Harbor가 하는 일 | ROSY가 하는 일 |
@@ -58,7 +60,7 @@ Harbor는 ROSY 코드를 import하지 않고 ROSY 계층 꼭대기 관제(현장
 |---|---|
 | `harbor/model.py` | 장치 칸·관측 시각·물리 보유·계획 기준 버전의 불변 값 |
 | `harbor/outbound.py` | 재취급·반출·복귀 순서의 결정적 제안 |
-| `harbor/site.py` | 적층암 A/B 2대(공급암 S는 외부 단계로 관측만), 이송 차량 3대, 컨베이어(용량 1), 업무 위치·셀 위치 두 층, 충전 한 자리, 직렬 이동 제약 |
+| `harbor/site.py` | 적층암 A/B 2대(S와 컨베이어 기구는 ROSY 셀 몫, ADR 0029), 이송 차량 3대, 업무 위치·셀 위치 두 층, 충전 한 자리, 직렬 이동 제약 |
 | `harbor/availability.py` | 수동 충전·대기·적재·정비·불명 이송 차량의 후보 제외 |
 | `harbor/process.py` | 기존 공정 문서 binding과 중립 ARM 물리 참조 binding, 반출 계획의 이동별 대응 |
 | `harbor/rosy_http.py` | 기존 Cell·TRIP와 중립 ARM 제안/조회·physical receipt의 HTTP 클라이언트. 승인·관측 제출은 제공하지 않음 |
@@ -89,7 +91,7 @@ Harbor는 ROSY 코드를 import하지 않고 ROSY 계층 꼭대기 관제(현장
 | [docs/execution.md](docs/execution.md) | 공정 제안과 업무 장부 사용법 |
 | [docs/observation-acceptance.md](docs/observation-acceptance.md) | 물리 관측 연동의 수용 조건 |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | 실행 연결 계획 |
-| [docs/adr/](docs/adr/) | 설계 결정 기록 (0001 공정 binding과 완료 근거, 0002 고정 소스 Fleet 계약 시험, 0003 Harbor가 가진 Fleet 계약 시험 하네스, 0004 도메인 중립 ROSY 위의 항만 앱 경계(제안), 0005 Harbor·ROSY 책임 지도, 0018 꼭대기 관제 하나로 연결, 0019 컨테이너 사건 이력, 0021 R 옆 운영 PC에 Compose 설치) |
+| [docs/adr/](docs/adr/) | 설계 결정 기록 (0001 공정 binding과 완료 근거, 0002 고정 소스 Fleet 계약 시험, 0003 Harbor가 가진 Fleet 계약 시험 하네스, 0004 도메인 중립 ROSY 위의 항만 앱 경계(제안), 0005 Harbor·ROSY 책임 지도, 0018 꼭대기 관제 하나로 연결, 0019 컨테이너 사건 이력, 0021 R 옆 운영 PC에 Compose 설치, 0027 Rosy 계정 로그인) |
 | [docs/plans/](docs/plans/) | 작업 계획 (2026-10-21 항만 앱 분할) |
 | [docs/validation/](docs/validation/) | 날짜별 검증 기록 |
 

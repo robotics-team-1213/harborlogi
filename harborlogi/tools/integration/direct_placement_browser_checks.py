@@ -35,14 +35,14 @@ def exercise_direct_placement(page, origin, plan, output):
     assert '지지' in page.locator('[data-scene-error]').inner_text()
     assert cargo.input_value() == 'C1' and figure.get_attribute('data-draft-changes') == '0'
     cargo.select_option('C2')
-    assert cell('temp', 1, 2).get_attribute('data-drop-state') == 'valid'
-    cell('temp', 1, 2).focus()
+    assert cell('temp_a', 1, 2).get_attribute('data-drop-state') == 'valid'
+    cell('temp_a', 1, 2).focus()
     page.keyboard.press('Enter')
-    assert cell('temp', 1, 2).evaluate('(node)=>node===document.activeElement'), 'Keyboard placement keeps focus on the moved cargo'
+    assert cell('temp_a', 1, 2).evaluate('(node)=>node===document.activeElement'), 'Keyboard placement keeps focus on the moved cargo'
     assert page.locator('[data-scene-editor] [name=column]').input_value() == '2'
     assert figure.get_attribute('data-draft-changes') == '1'
     scene = json.loads(raw)
-    destination_address = next(area for area in scene['areas'] if area['id']=='temp')['addresses']['1,2,1']
+    destination_address = next(area for area in scene['areas'] if area['id']=='temp_a')['addresses']['1,2,1']
     page.locator('[data-scene-change-panel] summary').click()
     assert destination_address in page.locator('[data-scene-changes]').inner_text()
     undo.click(); assert figure.get_attribute('data-draft-changes') == '0'
@@ -79,7 +79,7 @@ def exercise_direct_placement(page, origin, plan, output):
     assert figure.is_visible() and not page.locator('.model-viewport').is_visible()
     assert page.locator('[data-scene-editor]').is_visible()
     page.locator('[data-linked-cargo]').select_option('C2')
-    cell('temp', 1, 2).click()
+    cell('temp_a', 1, 2).click()
     assert figure.get_attribute('data-draft-changes') == '1'
     assert cargo.input_value() == 'C2'
     assert page.locator('[data-yard-linked-flat]').bounding_box()['y'] < page.locator('[data-scene-editor]').bounding_box()['y']

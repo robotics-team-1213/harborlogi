@@ -1,5 +1,7 @@
 # 플랫폼 연결 기준
 
+전체 책임 구분은 [Harbor와 ROSY의 책임](responsibilities.md)과 [ADR0028](adr/0028-control-units-device-owners-and-hosts.md)을 따른다. Harbor 업무·R/셀의 원장/admission·CORE/OMX 최종 실행·공통 서비스·호스트는 별개다. 이 문서의 고정 플랫폼 SHA·API 버전·당시 시험 근거는 이번 책임 안내 갱신으로 바꾸지 않는다. ARM 증거·재검사의 직계 자식 제한과 주행 위임/셀 ARM 승인 구분도 위 책임 안내에서 확인한다.
+
 2026-10-29 경계 분리의 코드 소유권과 고정 HTTP·설치 검증은
 [완료 기록](validation/2026-10-29-complete-application-boundaries.md)을 따른다.
 업무 장부·명령 서비스·화면은 어댑터의 정규화 결과를 소비하며, Fleet wire 검증은
@@ -22,6 +24,8 @@ Harbor 사용자의 계획 확정은 준비·제출을 한 번에 이어서 수�
 D-856 첫 중립 이송 흐름은 API reference **v1.298**의 `GET /api/fleet/trip-jobs/{mission_id}`와 원본 `request_key` 조회를 요구한다. 기존 TRIP 접수·simulation gate를 유지하며 recipe/cell 없이 수행 사실을 읽는다. 앱 제출 의도·응답 유실 대조는 [실행 연결](execution.md#중립-이송-의도와-수행-조회-d-856-첫-흐름)에 있다. 아래의 기존 Cell 검증 SHA를 새 경로 검증으로 간주하지 않는다. 새 통합은 [고정 양 끝 SHA 검증](validation/2026-10-24-neutral-transport-http.md)으로 확인했다.
 
 D-908 이송 제안은 API reference **v1.329**의 `/api/fleet/trip-proposals`(제안 POST·`request_key` 조회, 시뮬레이션 프로필 전용, 아니면 503)를 소비한다. 서비스 신원이 제안만 하고 승인은 다른 named operator가 한다. 앱 측 규칙은 [이송 제안 경로](execution.md#이송-제안-경로-d-908-api-v1329)에 있다. 실제 Fleet 대상 시험은 **미검증**이다.
+
+ADR 0029의 반입 사건은 R의 `GET /api/fleet/port-events?after=<cursor>&limit=<1..200>`(ROSY D-996)을 소비한다. Harbor는 불투명 cursor를 Fleet 연결마다 저장해 그대로 돌려보내고, 사건 4개를 `harbor/port_events.py`에서 화물별 단조 상태로 바꾼다. 이송 제안에는 선택 필드 `object_ref`(화물 코드)를 싣는다. 두 필드 모두 ROSY 착지 전이며 실제 Fleet 대상 시험은 **미검증**이다.
 
 기준 플랫폼: `647223ec39b8d68b5ad724faf7f070e30aa0f283`(공개 main, 2026-11-05), API reference 문서 **v1.361**. R이 물리 근거·재확인을 셀로 중계하는 v1.356을 포함한다. 이 커밋으로 `--full-flow`, `--arm-only`, R을 거친 `--arm-via-r`와 `--full-flow --via-r` 각 5회를 통과했다([2026-11-06 기록](validation/2026-11-06-evidence-through-r.md)). D-908 이송 제안 경로(PR #26)는 가짜 Fleet 단위 시험만 거쳤다. 이전 기준은 `ed455ea03af48100085c32487ba11a56ce80c085`(v1.355, [2026-11-04 기록](validation/2026-11-04-pinned-full-flow.md))다. 이 기준은 시뮬레이션 Fleet 계약이며, 운영 R의 설치 버전과는 다르다(운영 R은 [경계 점검](validation/2026-11-04-rosy-boundary-audit.md) 참조).
 

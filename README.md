@@ -25,6 +25,10 @@
 
 Harbor는 ROSY 위에서 도는 별도 애플리케이션이다. ROSY 코드를 가져오지 않고 Fleet HTTP API로 작업을 제안·조회만 하며, 로봇에 직접 명령하지 않는다.
 
+업무 장부·완료 판정은 **Harbor**, 관제 원장·admission은 **통합관제 R과 해당 셀**, 최종 장치 실행·안전은 **CORE·OMX owner**가 맡는다. Account·Monitoring·Media·World·Decision·Learning과 PC·브라우저도 별도 책임이다. [전체 책임표](harborlogi/docs/responsibilities.md)와 [ADR0028](harborlogi/docs/adr/0028-control-units-device-owners-and-hosts.md)에서 경계와 정본을 확인한다.
+
+N100·16GB Ubuntu는 R의 목표 호스트이며 장치 owner를 흡수하는 중앙 제어기가 아니다. 실제 이전·성능·현장 수용, Harbor의 공통 Account 로그인 연동 완료는 별도로 확인한다.
+
 ## 빠른 시작
 
 ```bash

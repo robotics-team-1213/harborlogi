@@ -173,7 +173,7 @@ class TierScenarioPageTests(TestCase):
             placements.append(dict(cargo_id=code, area_id='yard', row=row, column=1, level=level, orientation=0, footprint_revision=footprint.pk))
         services.record_observation(self.admin, source_id='row-camera', source_revision='1', observed_at=timezone.now(),
             provenance='SYNTHETIC', condition=condition,
-            payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp', 'stand'], placements=placements, holdings=[]))
+            payload=dict(schema='grid-placement-v1', observed_areas=['yard', *(area['area_id'] for area in policy['spatial_areas'])], placements=placements, holdings=[]))
         self.c1 = services.create_order(self.operator, cargo=Cargo.objects.get(code='C1'), kind='OUTBOUND', priority_group=2, sequence=1, tie_policy='FIXED')
         self.c2 = services.create_order(self.operator, cargo=Cargo.objects.get(code='C2'), kind='OUTBOUND', priority_group=2, sequence=2, tie_policy='FIXED')
         self.client.force_login(self.operator)

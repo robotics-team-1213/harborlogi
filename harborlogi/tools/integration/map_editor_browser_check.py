@@ -52,7 +52,7 @@ def main():
     original = services.register_condition(admin, name='Synthetic original map', calibration_ref='synthetic-only', payload=policy)
     observed = services.record_observation(admin, source_id='map-synthetic', source_revision='one',
         observed_at=timezone.now(), provenance='SYNTHETIC', condition=original,
-        payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp', 'stand'], holdings=[],
+        payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp_a', 'temp_b', 'stand'], holdings=[],
             placements=[dict(cargo_id=cargo.code, area_id='yard', row=1, column=1, level=1,
                 orientation=0, footprint_revision=CargoFootprint.objects.get(cargo=cargo).pk)]))
     original_payload, observation_payload = deepcopy(original.payload), deepcopy(observed.payload)

@@ -34,6 +34,8 @@ HarborLogi 프로젝트의 업무 앱 Harbor는 양하 이후 장치와 재취�
 
 ## Capabilities and Constraints
 
+책임 구분의 현재 안내는 [Harbor와 ROSY의 책임](docs/responsibilities.md), 결정은 [ADR0028](docs/adr/0028-control-units-device-owners-and-hosts.md)을 따른다. Harbor의 업무 원장·완료 판정과 R/셀의 조정·승인, CORE/OMX의 최종 실행, 공통 서비스와 물리 호스트를 구별한다. 위 2026-10-25의 팀 자체 계정 설명은 당시 구현 기준이며, 목표는 공통 Account 연동이다. 로그인 수신기 PR #46의 팀 main 병합·설치 전에는 연동 완료로 표시하지 않는다.
+
 - Python domain·계획·기존 SQLite 업무 장부·Fleet HTTP client를 유지하고 Django 계정/명시적 역할·화물/요청·관측 원본·불변 계획·실행 intent·현장 회차·감사/비교를 구현한다. 최종 수용은 실제 검증 기록과 남은 계약 게이트를 따른다.
 - 저장한 반출 우선순위·관측 revision으로 반출 계획과 입고 자동 배치를 계산한다. [ADR0010](docs/adr/0010-automatic-placement-and-replanning.md)에 따라 명시적으로 켠 미인계 요청은 지시·관측·크기·앞선 추천 변경에 새 계획을 계산하고, 앞선 입고 추천의 계획상 예약을 피한다. 실제 인증 재고/업무 근거 producer·모든 단계의 설치 binding·실행 중 단계 자동 교체와 시간표 최적화는 남은 게이트다. fixture 비교를 현장 성능 수용으로 표시하지 않는다.
 - 계획은 실행 허가가 아니며, Action 성공과 물리 receipt도 업무 완료 전체를 뜻하지 않는다.

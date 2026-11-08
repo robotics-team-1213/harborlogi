@@ -95,6 +95,11 @@ def tick(*, evidence=None, now=None, registry=None):
             _record(command.pk, True, interval)
     if not active:
         _rearrange_when_idle(now)
+    try:
+        from harbor_web import intake_loop
+        intake_loop.tick(registry, now=now)
+    except Exception:
+        pass  # R not reachable or not yet serving port events; the next tick retries.
     return dict(ran=True, reason='', results=results)
 
 

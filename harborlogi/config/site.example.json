@@ -6,12 +6,11 @@
     "supply_bench": "supply-bench",
     "conveyor": "conveyor",
     "bays": ["yard"],
-    "temporary_bays": ["temp"],
+    "temporary_bays": ["temp_a", "temp_b"],
     "outbound_stand": "stand"
   },
-  "conveyor": {"capacity": 1, "occupancy_evidence": "camera"},
   "waiting_positions": ["wait"],
-  "allowed_moves": [["conveyor", "yard"], ["yard", "temp"], ["temp", "yard"], ["yard", "stand"]],
+  "allowed_moves": [["conveyor", "yard"], ["yard", "temp_a"], ["temp_a", "yard"], ["yard", "temp_b"], ["temp_b", "yard"], ["yard", "stand"]],
   "charging_positions": 1,
   "max_moving_robots": 1
 }

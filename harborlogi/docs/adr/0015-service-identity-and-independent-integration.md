@@ -10,7 +10,7 @@ Harbor와 ROSY가 협력하려면 HTTP 연결뿐 아니라 누가 요청했는�
 
 ## 결정
 
-1. **사람 인증:** Harbor와 Fleet은 각자 로그인·세션·역할을 소유한다. 동일 사용자를 쓰더라도 세션/비밀번호 DB나 관리자 권한을 공유하지 않는다. 공통 IdP의 SSO를 도입하려면 issuer/audience·주체 대응·로그아웃·역할 발급을 별도 검증한다. 현재 IdP가 없는 상태에서 SSO를 구현했다고 표시하지 않는다.
+1. **사람 인증:** Harbor와 Fleet은 각자 로그인·세션·역할을 소유한다. 동일 사용자를 쓰더라도 세션/비밀번호 DB나 관리자 권한을 공유하지 않는다. 공통 IdP의 SSO를 도입하려면 issuer/audience·주체 대응·로그아웃·역할 발급을 별도 검증한다. 현재 IdP가 없는 상태에서 SSO를 구현했다고 표시하지 않는다. (2026-11-07: [ADR 0027](0027-rosy-account-sign-in.md)이 이 결정을 고친다. 사람 로그인은 Rosy 계정으로 하고, Harbor 역할 판단은 Harbor에 남는다.)
 2. **서비스 인증:** Harbor 서버가 Fleet 발급 전용 named principal과 `service` 역할의 기계 자격을 사용한다. 사람 `operator` 자격을 서버에 넣어 대체하지 않는다. 원문은 비밀 관리자/배포 환경에만 보관한다. Fleet이 발급·검증·폐기하며 Harbor가 Fleet 사용자를 만들거나 암호 원장을 편집하지 않는다.
 3. **매 호출 결속:** Harbor 실행 어댑터는 같은 client의 자격으로 공개 `GET /api/fleet/session`을 읽어 고정 principal과 service 역할을 확인한 뒤 요청한다. 과거 UI 검사 결과를 권한 캐시로 쓰지 않는다. 응답의 creator/key/body/mission·receipt 결속 검사도 유지한다. 사전 확인과 실제 요청은 하나의 분산 transaction이 아니다. Fleet의 요청별 인증·권한이 최종이며 자격을 다른 principal에 재할당하지 않는다.
 4. **업무와 실행:** Harbor가 목표·우선순위·재취급/반출/복귀 의존 관계·확정·재계획·업무 완료를 판단한다. Fleet은 중립 작업의 접수·admission·자원·실행 수명주기를 소유한다. CORE와 장치 owner가 실제 동작·정지의 최종 권한을 유지한다. 사용자 확정 범위 내 후속 진행은 Harbor 실행기 책임이며 플랫폼에 항만 workflow를 넣지 않는다.
