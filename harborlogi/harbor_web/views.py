@@ -1,7 +1,6 @@
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
@@ -305,14 +304,8 @@ def order_new(request):
     form = forms.OrderForm(request.POST or None, initial=initial)
     if request.method == 'POST' and form.is_valid():
         data = dict(form.cleaned_data)
-        make_first = data.pop('make_first')
-        if data.get('sequence') is None:  # last in its tier unless a script sends a sequence
-            data['priority_group'], data['sequence'] = services.back_of_tier(data['priority_group'], data['kind'])
-        try:
-            with transaction.atomic():
-                obj = services.create_order(request.user, **data)
-                if make_first and obj.kind == 'OUTBOUND':
-                    services.move_outbound_to_front(request.user, obj)
+        try:  # last in its tier unless a script sends a sequence; one locked transaction with the move to the front
+            obj = services.register_order(request.user, make_first=data.pop('make_first'), **data)
         except ValidationError as error:
             form_error(form, error)
         except services.Conflict:

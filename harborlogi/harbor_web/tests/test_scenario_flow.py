@@ -1,7 +1,10 @@
 """Scenario workbook import, inbound decisions and the rearrangement scenario (KAN-117 · KAN-118 · KAN-119)."""
+from datetime import timedelta
 from decimal import Decimal
+import io
 import json
 from pathlib import Path
+import zipfile
 
 from django.contrib.auth.models import Group, User
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -10,6 +13,7 @@ from unittest.mock import patch
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
 from harbor_web import scenario_import, services
 from harbor_web.coordination import queue_lock
@@ -26,6 +30,36 @@ def workbook(layout, events):
 
 
 class WorkbookTests(SimpleTestCase):
+    def test_a_cargo_leaves_once_and_order_numbers_are_whole_numbers(self):
+        data = workbook([['C1', '', '1', '1']], [['1', '반출', 'C1', '', '우선', ''], ['2', '반출', 'C1', '', '우선', ''],
+                                                   ['3', '입고', 'C1', '', '', ''], ['abc', '입고', 'N1', '', '', ''],
+                                                   ['-1', '입고', 'N2', '', '', ''], ['', '입고', 'N3', '', '', '']])
+        _, errors = scenario_import.parse_workbook(data)
+        for text in ('「이벤트」 3행: C1는 앞선 반출로 이미 나가 다시 반출할 수 없습니다.',
+                     '「이벤트」 4행: C1는 앞선 반출로 나간 화물이라 이 시나리오에서 다시 입고할 수 없습니다.',
+                     '「이벤트」 5행: 순번은 0~1000000 정수이거나 비워 둡니다.', '「이벤트」 6행: 순번은 0~1000000 정수이거나 비워 둡니다.'):
+            self.assertIn(text, errors)
+        self.assertFalse([error for error in errors if '7행' in error])  # a blank order number is allowed
+
+    def test_overlong_digit_runs_are_reported_not_raised(self):
+        # int() refuses more than 4300 digits; the parser must report the cell, not answer 500.
+        _, errors = scenario_import.parse_workbook(workbook([['C1', '', '9' * 5000, '1']], [['9' * 5000, '반출', 'C1', '', '', '']]))
+        self.assertIn('「초기 배치」 2행: 행과 층은 1~3입니다.', errors)
+        self.assertIn('「이벤트」 2행: 순번은 0~1000000 정수이거나 비워 둡니다.', errors)
+
+    def test_odd_shared_string_indexes_read_as_empty_cells(self):
+        source, buffer = zipfile.ZipFile(io.BytesIO(write_xlsx({'S': [['x']]}))), io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w') as archive:
+            for item in source.infolist():
+                if item.filename != 'xl/worksheets/sheet1.xml':
+                    archive.writestr(item, source.read(item))
+            archive.writestr('xl/sharedStrings.xml', '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                                                     '<si><t>hello</t></si></sst>')
+            archive.writestr('xl/worksheets/sheet1.xml', '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                '<sheetData><row r="1"><c r="A1" t="s"><v>²</v></c><c r="B1" t="s"><v>' + '9' * 5000 + '</v></c>'
+                '<c r="C1" t="s"><v>0</v></c></row></sheetData></worksheet>')
+        self.assertEqual(read_xlsx(buffer.getvalue()), {'S': [['', '', 'hello']]})
+
     def test_round_trip_keeps_cells_and_sheet_names(self):
         sheets = read_xlsx(write_xlsx({'가': [['화물 ID', '층'], ['C1', '2']], 'B': [['x', '', 'z']]}))
         self.assertEqual(sheets, {'가': [['화물 ID', '층'], ['C1', '2']], 'B': [['x', '', 'z']]})
@@ -122,7 +156,7 @@ class ScenarioFlowTests(TestCase):
         self.assertEqual(Audit.objects.filter(action=DECIDE_ACTION).count(), 2)  # deciding again adds nothing
         self.assertEqual(inbound_progress()['decided'], 2)
         page = self.client.get('/rearrangement/').content.decode()
-        self.assertIn('재배치 시나리오', page)
+        self.assertIn('id="scenario-state">재배치 시나리오</h3>', page)  # the preview, not the page head
         self.assertIn('+ 결정한 입고 위치', page)
         self.assertIn('name="action" value="request" disabled', page)
         self.assertContains(self.client.get('/'), '입고 위치 결정됨')
@@ -156,8 +190,62 @@ class ScenarioFlowTests(TestCase):
         self.assertEqual([row['order'].pk for row in progress['undecidable']], [unplanned.pk, held.pk])
         self.assertEqual((progress['decided'], progress['total']), (2, 4))
         page = self.client.get('/rearrangement/').content.decode()
-        self.assertIn('재배치 시나리오', page)
+        self.assertIn('id="scenario-state">재배치 시나리오</h3>', page)  # the preview, not the page head
         self.assertIn('결정할 수 없는 입고 2건', page)
+
+    def test_a_plan_whose_basis_changed_is_undecidable_everywhere(self):
+        # The decide button hides once the plan's observation expired (workspace.plan_changes). Such a request must
+        # not keep the rearrangement waiting, and the server must refuse it the same way (review of #44).
+        self.upload(scenario_import.template_workbook())
+        order = Order.objects.filter(kind='INBOUND').order_by('pk').first()
+        plan = Plan.objects.filter(order=order).latest('pk')
+        with patch('django.utils.timezone.now', return_value=timezone.now() + timedelta(seconds=1801)):  # max age 1800 s
+            progress = inbound_progress()
+            self.assertEqual(progress['waiting'], [])
+            self.assertEqual([row['reason'] for row in progress['undecidable']], ['관측 유효 시간 지남 · 새 관측 필요'] * 2)
+            page = self.client.get('/rearrangement/').content.decode()
+            self.assertIn('id="scenario-state">재배치 시나리오</h3>', page)
+            self.assertIn('관측 유효 시간 지남 · 새 관측 필요', page)
+            self.assertIn('유효 시간이 지났습니다. 새 관측이 들어와야', page)  # the preview's own observation expired too
+            self.assertIn('name="action" value="request" disabled', page)
+            self.client.post('/rearrangement/', dict(action='request'))
+            self.assertFalse(Order.objects.filter(kind='REARRANGE').exists())  # R2 would only hold it
+            self.assertNotContains(self.client.get(f'/plans/{plan.pk}/'), '이 위치로 결정')
+            self.assertEqual(self.client.post(f'/plans/{plan.pk}/', dict(action='decide', expected_version=order.version)).status_code, 409)
+        self.assertFalse(Audit.objects.filter(action=DECIDE_ACTION).exists())
+
+    def test_a_hand_planned_inbound_whose_queue_changed_waits_for_a_new_calculation_not_a_person(self):
+        self.upload(scenario_import.template_workbook())
+        manual = self._inbound('M1')  # planned by hand: a queue change does not re-plan it
+        services.make_plan(self.user, order_id=manual.pk, expected_version=manual.version, observation_id=Observation.objects.get().pk)
+        self.assertIn(manual.pk, [row['order'].pk for row in inbound_progress()['waiting']])  # fresh: a person can decide it
+        later = self._inbound('M2')
+        for order in Order.objects.filter(kind='INBOUND', auto_replan=True).order_by('pk'):  # the scenario's own, re-planned
+            plan = Plan.objects.filter(order=order).latest('pk')
+            self.client.post(f'/plans/{plan.pk}/', dict(action='decide', expected_version=order.version))
+        progress = inbound_progress()
+        self.assertEqual(progress['waiting'], [])
+        self.assertEqual([(row['order'].pk, row['reason']) for row in progress['undecidable']],
+                         [(manual.pk, '요청이나 대기열이 바뀜 · 다시 계산 필요'), (later.pk, '계획 없음 · 계산 필요')])
+
+    def test_an_older_plan_points_to_the_newest_instead_of_offering_a_refused_decision(self):
+        self.upload(scenario_import.template_workbook())
+        manual = self._inbound('M1')
+        observation = Observation.objects.get()
+        first = services.make_plan(self.user, order_id=manual.pk, expected_version=manual.version, observation_id=observation.pk)
+        newest = services.make_plan(self.user, order_id=manual.pk, expected_version=manual.version, observation_id=observation.pk)
+        page = self.client.get(f'/plans/{first.pk}/')
+        self.assertNotContains(page, '이 위치로 결정')
+        self.assertContains(page, f'최신 계획 #{newest.pk}에서 결정')
+        self.assertContains(self.client.get(f'/plans/{newest.pk}/'), '이 위치로 결정')
+
+    def test_the_automatic_planning_budget_message_reaches_the_page(self):
+        for i in range(15):
+            self._inbound(f'A{i}')
+        Order.objects.update(auto_replan=True)
+        response = self.upload(scenario_import.template_workbook(), name='S2')
+        self.assertContains(response, '자동 계획 한도 16건 중 15건을 이전 요청이 쓰고 있어 입고 2건을 더 등록할 수 없습니다.')
+        self.assertFalse(Observation.objects.exists())
 
     def test_import_holds_the_queue_lock_before_opening_its_transaction(self):
         # Every other mutating service takes queue_lock first and the SQLite write lock inside it; the import

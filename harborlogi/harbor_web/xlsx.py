@@ -73,7 +73,8 @@ def read_xlsx(data):
                         continue
                     kind, value = cell.get('t'), cell.find(f'{MAIN}v')
                     if kind == 's':
-                        text = shared[int(value.text)] if value is not None and value.text and value.text.isdigit() and int(value.text) < len(shared) else ''
+                        index = value.text if value is not None and value.text else ''
+                        text = shared[int(index)] if index.isascii() and index.isdigit() and len(index) <= 9 and int(index) < len(shared) else ''
                     elif kind == 'inlineStr':
                         text = _text(cell)
                     elif kind == 'b':

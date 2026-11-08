@@ -54,8 +54,8 @@ def _table(rows, columns, sheet, errors):
 
 
 def _integer(text, low, high):
-    # isascii() too: '²'.isdigit() is True but int('²') raises.
-    return int(text) if text.isascii() and text.isdigit() and low <= int(text) <= high else None
+    # isascii() too: '²'.isdigit() is True but int('²') raises; the length bound keeps int() under its 4300-digit limit.
+    return int(text) if text.isascii() and text.isdigit() and len(text) <= 9 and low <= int(text) <= high else None
 
 
 def parse_workbook(data):
@@ -98,23 +98,33 @@ def parse_workbook(data):
             errors.append(f'{where}: 단계는 긴급 · 우선 · 일반입니다.')
         if not code:
             errors.append(f'{where}: 화물 ID가 비어 있습니다.')
-        events.append(dict(order=_integer(row['순번'], 0, 10 ** 6), kind=kind, code=code, name=row['화물 이름'] or code,
+        order = _integer(row['순번'], 0, 10 ** 6)
+        if row['순번'] and order is None:  # blank sorts last; anything else must be a number
+            errors.append(f'{where}: 순번은 0~1000000 정수이거나 비워 둡니다.')
+        events.append(dict(order=order, kind=kind, code=code, name=row['화물 이름'] or code,
                            tier=tier, title=row['제목'][:80], row=number))
     if not events:
         errors.append(f'「{EVENT_SHEET}」에 이벤트가 없습니다.')
     events.sort(key=lambda event: (event['order'] is None, event['order'] or 0, event['row']))
-    present, inbound = {item['code'] for item in layout}, 0
+    present, gone, inbound = {item['code'] for item in layout}, set(), 0
     for event in events:  # presence follows the registration order (순번), not the sheet's row order
         where, code = f'「{EVENT_SHEET}」 {event["row"]}행', event['code']
         if not code:
             continue
         if event['kind'] == 'INBOUND':
             inbound += 1
-            if code in present:
+            if code in gone:
+                errors.append(f'{where}: {code}는 앞선 반출로 나간 화물이라 이 시나리오에서 다시 입고할 수 없습니다.')
+            elif code in present:
                 errors.append(f'{where}: {code}는 이미 야드에 있어 입고할 수 없습니다.')
             present.add(code)
-        elif event['kind'] == 'OUTBOUND' and code not in present:
-            errors.append(f'{where}: {code}는 초기 배치나 앞선 입고에 없어 반출할 수 없습니다.')
+        elif event['kind'] == 'OUTBOUND':
+            if code in gone:
+                errors.append(f'{where}: {code}는 앞선 반출로 이미 나가 다시 반출할 수 없습니다.')
+            elif code not in present:
+                errors.append(f'{where}: {code}는 초기 배치나 앞선 입고에 없어 반출할 수 없습니다.')
+            present.discard(code)
+            gone.add(code)
     if inbound > MAX_AUTOMATIC_INBOUND:
         errors.append(f'입고는 시나리오 하나에 {MAX_AUTOMATIC_INBOUND}건까지입니다(자동 계획 한도).')
     return (None if errors else dict(layout=layout, events=events, digest=hashlib.sha256(data).hexdigest())), errors

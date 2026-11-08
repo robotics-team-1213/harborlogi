@@ -21,6 +21,12 @@ from harbor_web.yard_occupancy import AREA_LABELS
 PREVIEW_K, PREVIEW_MAX_MOVES = 2, 6  # the defaults of a requested rearrangement (rearrangement.request_rearrangement)
 
 
+def _expired(observation, now):
+    """Past the condition's freshness window, as workspace.plan_changes reads it: R2 would only hold a request."""
+    age = now - observation.observed_at
+    return not timezone.timedelta(0) <= age <= services.constraints(observation.condition.payload).max_observation_age
+
+
 def _preview(observation, progress, now):
     if observation is None or observation.payload.get('schema') != 'grid-placement-v1':
         return None
@@ -35,7 +41,7 @@ def _preview(observation, progress, now):
         return None
     labels = AREA_LABELS
     return dict(proposal=proposal, record=rearrangement.plan_record(proposal, {}), observation=observation,
-                projected=len(projected.placements) != len(snapshot.placements),
+                projected=len(projected.placements) != len(snapshot.placements), expired=_expired(observation, now),
                 moves=[dict(number=i, cargo=m.cargo_id, source=place_label(vars(m.source_placement), labels),
                             destination=place_label(vars(m.destination_placement), labels)) for i, m in enumerate(proposal.moves, start=1)])
 
@@ -58,6 +64,8 @@ def rearrangement_page(request):
                     raise ValidationError('관측이 없습니다.')
                 if progress['waiting']:
                     raise ValidationError('입고 결정이 남아 있습니다. 입고 시나리오가 끝난 뒤 재배치합니다.')
+                if _expired(observation, timezone.now()):
+                    raise ValidationError('관측 유효 시간이 지나 재배치 계획을 만들 수 없습니다. 새 관측이 필요합니다.')
                 plan = rearrangement.request_rearrangement(request.user, observation_id=observation.pk)
                 return redirect(f'/plans/{plan.pk}/')
             else:
