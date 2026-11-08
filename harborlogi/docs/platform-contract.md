@@ -2,6 +2,8 @@
 
 2026-10-29 경계 분리의 코드 소유권과 고정 HTTP·설치 검증은
 [완료 기록](validation/2026-10-29-complete-application-boundaries.md)을 따른다.
+공정 컴파일 공통화 이후의 고정 HTTP 재검증은
+[플랫폼 후속 검증](validation/2026-10-29-platform-boundary-followup-http.md)을 따른다.
 업무 장부·명령 서비스·화면은 어댑터의 정규화 결과를 소비하며, Fleet wire 검증은
 `harbor/fleet_contract.py`와 `execution.py`가 소유한다. 플랫폼 API나 승인 정책 변경은 없다.
 
