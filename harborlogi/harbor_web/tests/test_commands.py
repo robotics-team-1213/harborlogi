@@ -8,10 +8,10 @@ from unittest.mock import patch
 from harbor_web.tests import test_services as fixtures
 from django.test import TestCase
 from django.test import TransactionTestCase
-from harbor_web import commands
+from harbor_web import commands, services
 from harbor_web.models import Command, CommandFact
 from harbor_web.services import Conflict
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.contrib.auth.models import User
 
 
@@ -91,6 +91,17 @@ class CommandTests(TestCase):
 
     def test_declared_observation_cannot_enable_execution(self):
         self.assertFalse(commands.capability(self.plan('DECLARED'))['enabled'])
+
+    def test_completed_order_refuses_a_new_command(self):
+        plan = self.plan()
+        command = commands.prepare_command(self.operator, plan_id=plan.pk, expected_version=1)
+        Command.objects.filter(pk=command.pk).update(state='COMPLETED')
+        again = services.make_plan(self.operator, order_id=plan.order_id, expected_version=1,
+                                   observation_id=plan.observation_id, now=self.now)
+        self.assertEqual(commands.capability(again)['reason'], 'ORDER_ALREADY_COMPLETED')
+        with self.assertRaises(ValidationError):
+            commands.prepare_command(self.operator, plan_id=again.pk, expected_version=1)
+        self.assertEqual(Command.objects.filter(order_id=plan.order_id).count(), 1)
 
     def test_prepare_idempotent_and_no_ledger_business_yet(self):
         plan = self.plan()
@@ -218,6 +229,47 @@ class CommandTests(TestCase):
             body_digest=command.body_digest, fleet_origin=command.fleet_origin, fleet_principal=command.fleet_principal,
             job=bad, receipt=receipt, read_at=self.now + __import__('datetime').timedelta(seconds=10))
         self.assertIsNone(commands.command_detail(command)['job'])
+
+    def test_reconciliation_uses_one_job_and_receipt_for_ledger_and_audit(self):
+        command = commands.prepare_command(self.operator, plan_id=self.plan().pk, expected_version=1)
+        registry = commands.acquire_registry()
+        job = self.job(command)
+        with patch.object(registry.client, 'propose_arm', return_value={'job': job}), patch.object(
+                registry.client, 'arm_request', return_value={'job': job}):
+            command = commands.submit_command(self.operator, command_id=command.pk, expected_version=1)
+        job.update(status='GOAL_CONFIRMED', resource_policy_digest='a'*64, authority_epoch=1, dispatch_generation=2)
+        receipt = dict(mission_id='mission-1', workcell_id='cell', instance_id='instance', object_ref='cargo',
+            source='bay-ref', target='out-ref', policy_digest='a'*64, authority_epoch=1, dispatch_generation=2,
+            physical_status='AT_TARGET_AND_CLEAR', validated_at_ns=3, request_digest='c'*64,
+            evidence_digest='b'*64, receipt_id='receipt-1', action_id='action-1', attempt_id='attempt-1')
+        with patch.object(registry.client, 'arm_request', return_value={'job': job}) as read, patch.object(
+                registry.client, 'physical_receipt', return_value={'receipt': receipt}) as physical, patch.object(
+                registry.client, 'arm_job', side_effect=AssertionError('A second job read must not occur')):
+            command = commands.reconcile_command(self.operator, command_id=command.pk, expected_version=command.version)
+        self.assertEqual(command.state, 'RECONCILED')
+        read.assert_called_once_with(commands._key(command) + ':0')
+        physical.assert_called_once_with('mission-1')
+        row = registry.ledger.read(commands._key(command))
+        fact = CommandFact.objects.filter(command=command).latest('pk')
+        self.assertEqual(row['attempt_id'], fact.receipt['attempt_id'])
+        self.assertEqual(row['mission_id'], fact.job['mission_id'])
+        self.assertEqual(row['goal_confirmed'], 1)
+
+    def test_executor_reconciliation_cannot_resume_a_pending_cancellation(self):
+        command = commands.prepare_command(self.operator, plan_id=self.plan().pk, expected_version=1)
+        registry = commands.acquire_registry()
+        job = self.job(command)
+        with patch.object(registry.client, 'propose_arm', return_value={'job': job}), patch.object(
+                registry.client, 'arm_request', return_value={'job': job}):
+            command = commands.submit_command(self.operator, command_id=command.pk, expected_version=1)
+        with patch.object(registry.client, 'cancel_arm', return_value={'ack': True}):
+            command = commands.cancel_command(self.operator, command_id=command.pk,
+                expected_version=command.version, reason='Operator stop')
+        with patch.object(registry.client, 'arm_request', return_value={'job': job}):
+            command = commands.reconcile_command(self.operator, command_id=command.pk,
+                expected_version=command.version, resume=True)
+        self.assertEqual(command.state, 'CANCEL_PENDING')
+        self.assertEqual(registry.ledger.read(commands._key(command))['state'], 'HOLD')
 
     def test_binding_profile_rotation_blocks_dispatch(self):
         command = commands.prepare_command(self.operator, plan_id=self.plan().pk, expected_version=1)

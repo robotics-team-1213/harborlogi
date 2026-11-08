@@ -1,9 +1,8 @@
 """Standing business executor: durable multi-step progression without views (design 24/27 P1).
 
-The loop advances confirmed commands through the BusinessLedger stages: it submits the
-next bound step, reconciles in-flight stages through the original request key (reusing
-the operator reconcile operation), resumes stages held only by bookkeeping uncertainty,
-and confirms/finishes goal-confirmed stages with evidence from a configured provider.
+The loop selects active commands and invokes commands.advance_command. The command
+service owns submission, reconciliation and business evidence transitions; this module
+owns scheduling, bounded passes and backoff.
 It never submits a new request key for an uncertain outcome, never admits or
 self-approves, and leaves CANCEL_PENDING commands and operator decisions untouched.
 Web requests stay read-only toward progression.
@@ -13,7 +12,6 @@ and stay there until P2 connects authenticated sources. Start is explicit: set
 HARBOR_EXECUTOR_ENABLED=1 in the serving process. When dev autoreload spawns a second
 loop, the SQLite writer lease leaves the loser idling harmlessly.
 """
-import json
 import math
 import os
 import threading
@@ -21,17 +19,11 @@ import threading
 from django.db import close_old_connections
 from django.utils import timezone
 
-from harbor.process import ArmTransferBinding
-from harbor.transport import TransportLedger, TripIntent
 from harbor_web import commands
-from harbor_web.models import DepartureIntent
-from harbor_web.trip_proposals import FRESH, destination, trip_key
-from harbor_web.coordination import queue_lock
 
 # DISPATCHING survives only a crash between the state save and the first proposal;
 # RECONCILED is the steady progression state; UNKNOWN is reconciled by the original key.
 ACTIVE_STATES = ('DISPATCHING', 'RECONCILED', 'UNKNOWN')
-PROPOSE_STATES = ('DISPATCHING', 'RECONCILED')
 MAX_BACKOFF_SECONDS = 300.0
 
 _stop = threading.Event()
@@ -66,89 +58,13 @@ def _record(command_id, failed, interval):
         _failures[command_id] = (count + 1, timezone.now() + timezone.timedelta(seconds=delay))
 
 
-def _propose_next(command, registry, key):
-    """Submit the next bound stage: the durable step the user's confirmation commissioned."""
-    with queue_lock, registry.lock(command.pk):
-        command.refresh_from_db()
-        if command.state not in PROPOSE_STATES:
-            return command.state
-        mission = registry.ledger.propose(key, registry.client)
-        row = registry.ledger.read(key)
-        request_key = f"{key}:{row['step_index']}"
-        binding = ArmTransferBinding(**command.binding['moves'][row['step_index']])
-        job = binding.check(registry.client.arm_request(request_key)['job'], request_key)
-        if job.get('proposal_principal_id') != command.fleet_principal:
-            raise ValueError('Principal mismatch')
-        command.mission_id = mission
-        commands._record_fact(command, job, None)
-        return commands._save(command, command.actor, 'RECONCILED')
-
-
-def _resume(command, registry, key, *, now):
-    """Re-enter WAITING from a bookkeeping HOLD once the original request key reconciles."""
-    with queue_lock, registry.lock(command.pk):
-        command.refresh_from_db()
-        if command.state != 'RECONCILED':
-            return command.state
-        job = registry.ledger.resume_arm(key, registry.client, now=now)
-        if job.get('proposal_principal_id') != command.fleet_principal:
-            raise ValueError('Principal mismatch')
-        command.mission_id = job['mission_id']
-        commands._record_fact(command, job, None)
-        return commands._save(command, command.actor, 'RECONCILED')
-
-
-def _advance(command, registry, *, now, evidence):
-    """Progress one command by at most one business stage; keep every original identity."""
-    from harbor_web.runtime import execution_block_reason
-    key = commands._key(command)
-    command.refresh_from_db()
-    if command.state not in ACTIVE_STATES or execution_block_reason():
-        return command.state
+def _rearrange_when_idle(now):
+    """Design 32 R2: the idle executor asks whether a standing authorization allows a rearrangement."""
+    from harbor_web import rearrangement
     try:
-        commands._validate(command, registry.config)
-        commands._prepare_ledger(command, registry)
-        row = registry.ledger.read(key)
-        payload = json.loads(row['payload'])
-        if payload.get('execution_kind') != 'ARM_TRANSFER':
-            return command.state  # Legacy cell stages stay with human reconciliation.
-        if row['state'] == 'COMPLETED':
-            return commands._save(command, command.actor, 'COMPLETED')
-        if row['state'] == 'PLANNED':
-            if command.state not in PROPOSE_STATES:
-                return command.state  # An uncertain prior stage must reconcile first.
-            return _propose_next(command, registry, key)
-        if row['state'] in ('WAITING', 'HOLD'):
-            command = commands._operation(command.actor, command.pk, command.version, 'reconcile')
-            row = registry.ledger.read(key)
-            if row['state'] == 'HOLD' and command.state == 'RECONCILED':
-                command = _resume(command, registry, key, now=now)
-                row = registry.ledger.read(key)
-        if row['state'] == 'WAITING' and row['goal_confirmed'] and evidence is not None:
-            step = evidence(command, row, payload, 'step')
-            if step is not None:
-                # A fresh clock at the confirmation site: refresh stamps reconciliation
-                # with its own now, and confirmation must not run before it.
-                with queue_lock, registry.lock(command.pk):
-                    registry.ledger.confirm(key, step, now=timezone.now())
-                row = registry.ledger.read(key)
-        if row['state'] == 'AWAITING_FINAL_EVIDENCE' and evidence is not None:
-            final = evidence(command, row, payload, 'final')
-            if final is not None:
-                with queue_lock, registry.lock(command.pk):
-                    registry.ledger.finish(key, final, now=timezone.now())
-                return commands._save(command, command.actor, 'COMPLETED')
-        return command.state
+        rearrangement.auto_check(now)
     except Exception:
-        # Uncertain outcome: hold the stage, keep the original request key, reconcile later.
-        try:
-            registry.ledger.hold(key)
-        except Exception:
-            pass
-        command.refresh_from_db()
-        if command.state in ACTIVE_STATES:
-            return commands._save(command, command.actor, 'UNKNOWN', 'RECONCILIATION_REQUIRED')
-        return command.state
+        pass  # A failed check leaves no Command; the next idle tick retries.
 
 
 def _advance_trips(registry, *, now, interval):
@@ -214,27 +130,42 @@ def tick(*, evidence=None, now=None, registry=None):
             results[command.pk] = 'BACKOFF'
             continue
         try:
-            results[command.pk] = _advance(command, registry, now=now, evidence=evidence)
+            results[command.pk] = commands.advance_command(command, registry, evidence=evidence)
             _record(command.pk, False, interval)
         except Exception as error:
             results[command.pk] = f'TICK_ERROR: {type(error).__name__}'
             _record(command.pk, True, interval)
+    if not active:
+        _rearrange_when_idle(now)
     try:
-        results.update({'trip:' + key: value for key, value in _advance_trips(registry, now=now, interval=interval).items()})
-    except Exception as error:
-        results['trip'] = f'TICK_ERROR: {type(error).__name__}'
+        from harbor_web import intake_loop
+        intake_loop.tick(registry, now=now)
+    except Exception:
+        pass  # R not reachable or not yet serving port events; the next tick retries.
     return dict(ran=True, reason='', results=results)
 
 
 def _loop_evidence():
-    """The production provider (P2): intake-backed when the deployment opts in."""
-    if os.environ.get('HARBOR_EXECUTOR_EVIDENCE') != 'intake':
-        return None
+    """The production provider (P2): intake-backed when opted in, plus the named-person source (ADR 0023)."""
+    providers = []
     try:
-        from harbor_web.evidence import intake_provider
-        return intake_provider()
+        if os.environ.get('HARBOR_EXECUTOR_EVIDENCE') == 'intake':
+            from harbor_web.evidence import intake_provider
+            providers.append(intake_provider())
+        from harbor_web.human_evidence import human_provider
+        providers.append(human_provider())  # Gated per call by the admin switch.
     except Exception:
+        pass
+    if not providers:
         return None
+
+    def evidence(*args):
+        for provider in providers:
+            found = provider(*args)
+            if found is not None:
+                return found
+        return None
+    return evidence
 
 
 def _run(interval):

@@ -46,25 +46,11 @@ class CellLocations:
 
 
 @dataclass(frozen=True)
-class Conveyor:
-    """One-direction, always-running belt between the supply and yard benches (ADR 0005 decision 8)."""
-    capacity: int
-    occupancy_evidence: str
-
-    def __post_init__(self):
-        if type(self.capacity) is not int or self.capacity != 1:
-            raise ValueError("The conveyor is a capacity-1 transfer section")
-        if self.occupancy_evidence not in {"sensor", "camera"}:
-            raise ValueError("Conveyor occupancy evidence is the end sensor or the top camera")
-
-
-@dataclass(frozen=True)
 class Site:
     arms: Mapping[str, str]
     external_supply_arm: str
     transfer_vehicle_ids: tuple[str, ...]
     cell_locations: CellLocations
-    conveyor: Conveyor
     waiting_positions: tuple[str, ...]
     allowed_moves: frozenset[tuple[str, str]]
     charging_positions: int
@@ -78,8 +64,8 @@ class Site:
         identifiers((*self.arms.values(), self.external_supply_arm))
         if len(self.transfer_vehicle_ids) != 3 or {*self.arms.values(), self.external_supply_arm} & set(self.transfer_vehicle_ids):
             raise ValueError("Expected three distinct transfer vehicles, separate from arms")
-        if not isinstance(self.cell_locations, CellLocations) or not isinstance(self.conveyor, Conveyor):
-            raise ValueError("Expected cell locations and a conveyor")
+        if not isinstance(self.cell_locations, CellLocations):
+            raise ValueError("Expected cell locations")
         identifiers(self.waiting_positions)
         cells = self.cell_locations
         if not self.waiting_positions or set(self.waiting_positions) & {
@@ -110,14 +96,15 @@ class Site:
                 raise ValueError(f"Site configuration field {old!r} was renamed to {new!r} (ADR 0005)")
         if isinstance(data.get("arms"), dict) and "S" in data["arms"]:
             raise ValueError("Supply arm S is an external step: move it from 'arms' to 'external_supply_arm'")
-        expected = {"arms", "external_supply_arm", "transfer_vehicle_ids", "cell_locations", "conveyor",
+        if "conveyor" in data:
+            raise ValueError("Conveyor mechanics belong to the ROSY cell (ADR 0029): remove 'conveyor'")
+        expected = {"arms", "external_supply_arm", "transfer_vehicle_ids", "cell_locations",
                     "waiting_positions", "allowed_moves", "charging_positions", "max_moving_robots"}
         if set(data) != expected:
             raise ValueError("Unknown or missing site configuration fields")
-        cells, conveyor = data["cell_locations"], data["conveyor"]
-        if (not isinstance(cells, dict) or set(cells) != {"supply_bench", "conveyor", "bays", "temporary_bays", "outbound_stand"}
-                or not isinstance(conveyor, dict) or set(conveyor) != {"capacity", "occupancy_evidence"}):
-            raise ValueError("Unknown or missing cell location or conveyor fields")
+        cells = data["cell_locations"]
+        if not isinstance(cells, dict) or set(cells) != {"supply_bench", "conveyor", "bays", "temporary_bays", "outbound_stand"}:
+            raise ValueError("Unknown or missing cell location fields")
         for value in (data["transfer_vehicle_ids"], data["waiting_positions"], data["allowed_moves"],
                       cells["bays"], cells["temporary_bays"]):
             if not isinstance(value, list):
@@ -127,6 +114,5 @@ class Site:
         return cls(data["arms"], data["external_supply_arm"], tuple(data["transfer_vehicle_ids"]),
                    CellLocations(cells["supply_bench"], cells["conveyor"], tuple(cells["bays"]),
                                  tuple(cells["temporary_bays"]), cells["outbound_stand"]),
-                   Conveyor(conveyor["capacity"], conveyor["occupancy_evidence"]),
                    tuple(data["waiting_positions"]), frozenset(tuple(e) for e in data["allowed_moves"]),
                    data["charging_positions"], data["max_moving_robots"])

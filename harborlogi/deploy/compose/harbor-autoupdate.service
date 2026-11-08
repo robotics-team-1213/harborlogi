@@ -1,0 +1,9 @@
+[Unit]
+Description=Move Harbor to the newest image from green team main
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /opt/harbor/current/harbor_autoupdate.py

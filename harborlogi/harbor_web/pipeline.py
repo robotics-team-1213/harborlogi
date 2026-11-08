@@ -3,6 +3,7 @@ import os
 from urllib.parse import urlencode, urlsplit
 
 from harbor.rosy_http import RosyClient
+from harbor.execution import execution_phase
 
 
 COMMAND_LABELS = {
@@ -10,9 +11,9 @@ COMMAND_LABELS = {
     'CANCEL_PENDING': '취소 대조 필요', 'BLOCKED': '인계 보류', 'RECONCILED': '원본 대조됨',
 }
 JOB_LABELS = {
-    'PROPOSED': '독립 승인 대기', 'READY': '승인됨 · 수행 준비', 'RUNNING': '수행 중',
-    'ACTION_SUCCEEDED': '동작 성공 · 물리 근거 대기', 'GOAL_CONFIRMED': '물리 결과 확인됨',
-    'HOLD': '수행 보류',
+    'awaiting_approval': '독립 승인 대기', 'awaiting_execution': '승인됨 · 수행 준비', 'executing': '수행 중',
+    'awaiting_physical_evidence': '동작 성공 · 물리 근거 대기', 'physical_confirmed': '물리 결과 확인됨',
+    'held': '수행 보류',
 }
 
 
@@ -61,15 +62,15 @@ def pipeline_for(order, plan=None, command=None, detail=None):
     detail = detail or {}
     job, receipt, ledger = detail.get('job') or {}, detail.get('receipt'), detail.get('ledger') or {}
     state = command.state if command else ''
-    status = job.get('status', '')
+    status = execution_phase(job) if job else ''
     uncertain = state in {'UNKNOWN', 'DISPATCHING', 'CANCEL_PENDING'} or bool(detail.get('reason') == 'LEDGER_UNAVAILABLE')
     from harbor_web.fleet_connection import connection_settings
     config = connection_settings()
     links = fleet_links(command.fleet_origin, command.mission_id,
         arm_console_enabled=config['arm_console_enabled'] and (not config['origin'] or config['origin'] == command.fleet_origin)) if command else fleet_links(None)
     submitted = bool(command and command.mission_id and state != 'PREPARED')
-    approved = status in {'READY', 'RUNNING', 'ACTION_SUCCEEDED', 'GOAL_CONFIRMED'}
-    executed = status in {'ACTION_SUCCEEDED', 'GOAL_CONFIRMED'}
+    approved = status in {'awaiting_execution', 'executing', 'awaiting_physical_evidence', 'physical_confirmed'}
+    executed = status in {'awaiting_physical_evidence', 'physical_confirmed'}
     completed = ledger.get('state') == 'COMPLETED'
 
     def stage(key, label, owner, done, note, active=False, href=None, action=''):
@@ -84,9 +85,9 @@ def pipeline_for(order, plan=None, command=None, detail=None):
               COMMAND_LABELS.get(state, '검토한 계획에서 인계를 준비하세요.'), bool(command and not submitted)),
         stage('approval', '독립 승인', 'ROSY Fleet 운영자', approved,
               '제안자와 다른 명명 운영자가 원본 제안을 검토하고 승인합니다.',
-              status == 'PROPOSED', links['arm'], 'fleet'),
+              status == 'awaiting_approval', links['arm'], 'fleet'),
         stage('execution', '동작 수행', 'ROSY Fleet · CORE · owner', executed,
-              JOB_LABELS.get(status, '검증된 수행 원본이 아직 없습니다.'), status in {'READY', 'RUNNING'}),
+              JOB_LABELS.get(status, '검증된 수행 원본이 아직 없습니다.'), status in {'awaiting_execution', 'executing'}),
         stage('physical', '물리 결과 대조', '독립 observer · Harbor 대조', bool(receipt),
               '검증된 receipt 저장됨' if receipt else 'Action 성공 뒤에도 목표 위치·퇴피 근거가 필요합니다.',
               executed and not receipt),
@@ -102,7 +103,7 @@ def pipeline_for(order, plan=None, command=None, detail=None):
     elif command and (uncertain or submitted or state == 'RECONCILED'):
         primary = dict(action='reconcile', label='원래 요청으로 최신 원본 대조', href='',
                        note='저장된 같은 요청 key로 조회합니다. 새 제안을 만들지 않습니다.')
-        if not uncertain and ledger.get('state') != 'HOLD' and status == 'PROPOSED' and links['arm']:
+        if not uncertain and ledger.get('state') != 'HOLD' and status == 'awaiting_approval' and links['arm']:
             primary = dict(action='fleet', label='Fleet에서 독립 승인 검토', href=links['arm'],
                            note='Fleet 자신의 계정으로 원본을 검토하세요. 제안자는 직접 승인할 수 없습니다.')
     return dict(stages=stages, primary=primary, links=links, read_at=detail.get('read_at'),

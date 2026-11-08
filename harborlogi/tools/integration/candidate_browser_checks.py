@@ -13,7 +13,7 @@ def exercise_candidate_preview(page, origin, plan, output):
         if request.method == 'POST':
             posts.append(request.url)
     page.on('request', observe)
-    page.locator('.planning-recommendation details').first.locator('summary').click()
+    page.locator('.planning-recommendation > details > summary').first.click()
     page.locator(f'a[href="/plans/{plan.pk}/candidates/2/"]').click()
     page.wait_for_load_state('networkidle')
     page.locator('[data-yard-3d][data-ready=true]').wait_for()

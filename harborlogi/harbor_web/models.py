@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 
@@ -104,24 +104,69 @@ class Observation(Immutable):
     class Meta:
         constraints = [models.UniqueConstraint(fields=['source_id', 'source_revision'], name='observation_source_revision_unique')]
 
+    @property
+    def display_label(self):
+        """Short choice label; the raw source revision stays on the source and evidence lines."""
+        from django.utils import timezone
+        observed = timezone.localtime(self.observed_at) if timezone.is_aware(self.observed_at) else self.observed_at
+        kind = {'SYNTHETIC': '합성 자료', 'DECLARED': '수동 등록'}.get(self.provenance, self.provenance)
+        return f'#{self.pk} · {self.source_id} · {observed:%m-%d %H:%M} 관측 · {kind}'
+
 
 class Order(Authored):
     auto_replan = models.BooleanField(default=False)
     planning_observation = models.ForeignKey(Observation, null=True, blank=True, on_delete=models.PROTECT, related_name='+')
-    cargo = models.ForeignKey(Cargo, on_delete=models.PROTECT)
-    kind = models.CharField(max_length=8, choices=[('INBOUND', 'Inbound'), ('OUTBOUND', 'Outbound')])
+    # Only a REARRANGE order has no single cargo (design 32).
+    cargo = models.ForeignKey(Cargo, null=True, blank=True, on_delete=models.PROTECT)
+    kind = models.CharField(max_length=9, choices=[('INBOUND', 'Inbound'), ('OUTBOUND', 'Outbound'), ('REARRANGE', 'Rearrange')])
     priority_group = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     sequence = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     tie_policy = models.CharField(max_length=5, default='FIXED', choices=[('FIXED', 'Fixed'), ('ANY', 'Any')])
+    # Display name. queue_digest leaves the column out, so adding it kept stored plan digests intact; editing a
+    # title still bumps the order version like any instruction change, which marks plans for review (#34).
+    title = models.CharField(max_length=80, blank=True, default='')
     note = models.CharField(max_length=500, blank=True)
     version = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     updated_at = models.DateTimeField(auto_now=True)
 
+    @property
+    def tier_label(self):
+        """긴급 · 우선 · 일반 for priority_group 1 · 2 · 3; older groups above 3 read as 일반 (KAN-116)."""
+        return {1: '긴급', 2: '우선'}.get(self.priority_group, '일반')
+
     class Meta:
         constraints = [
             models.CheckConstraint(condition=models.Q(priority_group__gt=0, sequence__gt=0, version__gt=0), name='order_positive_versions'),
+            models.CheckConstraint(condition=models.Q(cargo__isnull=False) | models.Q(kind='REARRANGE'), name='order_cargo_unless_rearrange', violation_error_message='입고·반출 요청은 화물을 선택해야 합니다.'),
             models.UniqueConstraint(fields=['priority_group', 'sequence'], condition=models.Q(kind='OUTBOUND', tie_policy='FIXED'), name='fixed_order_sequence_unique'),
         ]
+
+
+class RearrangeAuthorization(Authored):
+    """Standing permission for automatic R2 rearrangement (design 32, ADR0017 decision 4).
+
+    created_by is the enabling user. Values never change: a new setting is a new row and
+    the old one is switched off. Only the disabled fields may be written, once.
+    """
+    k = models.PositiveSmallIntegerField(default=2, validators=[MinValueValidator(1), MaxValueValidator(10)])
+    max_moves = models.PositiveSmallIntegerField(default=6, validators=[MinValueValidator(1), MaxValueValidator(12)])
+    valid_until = models.DateTimeField()
+    daily_limit = models.PositiveSmallIntegerField(default=20, validators=[MinValueValidator(1), MaxValueValidator(1000)])
+    disabled_at = models.DateTimeField(null=True, blank=True)
+    disabled_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT, related_name='+')
+
+    def save(self, *args, **kwargs):
+        if self._state.adding:
+            kwargs['force_insert'] = True
+        else:
+            old = type(self).objects.get(pk=self.pk)
+            fixed = ('k', 'max_moves', 'valid_until', 'daily_limit', 'created_by_id', 'created_at')
+            if old.disabled_at is not None or any(getattr(old, f) != getattr(self, f) for f in fixed):
+                raise ValidationError('Historical records cannot be edited.')
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValidationError('Historical records cannot be deleted.')
 
 
 class Plan(Immutable):
@@ -209,4 +254,4 @@ class Measurement(Immutable):
 
 from harbor_web.command_models import Command, CommandFact
 
-from harbor_web.runtime_models import DeploymentState, FleetConnection
+from harbor_web.runtime_models import DeploymentState, EvidenceProducerSetting, FleetConnection

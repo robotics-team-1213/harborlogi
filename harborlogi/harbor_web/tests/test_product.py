@@ -44,6 +44,25 @@ class ProductPagesTests(TestCase):
         order = Order.objects.get()
         self.assertContains(self.client.get(f'/requests/{order.pk}/'), 'C1')
 
+    def test_missing_cargo_shows_plain_field_error_without_constraint_name(self):
+        self.client.force_login(self.operator)
+        for kind in ('INBOUND', 'OUTBOUND'):
+            response = self.client.post('/requests/new/', dict(kind=kind, priority_group=1, sequence=1, tie_policy='FIXED'))
+            self.assertContains(response, '입고·반출 요청은 화물을 선택해야 합니다.')
+            self.assertNotContains(response, 'order_cargo_unless_rearrange')
+            self.assertIn('cargo', response.context['form'].errors)
+        self.assertEqual(Order.objects.count(), 0)
+
+    def test_request_detail_forms_have_no_duplicate_ids(self):
+        import re
+        self.client.force_login(self.operator)
+        self.client.post('/cargo/new/', dict(code='C1', name='화물', weight_kg='1', volume_m3='1', destination='부산', length_cells=1))
+        self.client.post('/requests/new/', dict(cargo=Cargo.objects.get().pk, kind='OUTBOUND', priority_group=1, sequence=1, tie_policy='FIXED'))
+        html = self.client.get(f'/requests/{Order.objects.get().pk}/').content.decode()
+        ids = re.findall(r'id="([^"]+)"', html)
+        self.assertEqual(sorted(i for i in set(ids) if ids.count(i) > 1), [])
+        self.assertIn('name="expected_version"', html)
+
     def test_role_guards_and_csrf(self):
         self.client.force_login(self.viewer)
         self.assertEqual(self.client.post('/cargo/new/', {}).status_code, 403)

@@ -1,0 +1,225 @@
+{
+  "source_commit": "c47d924f795c84adb673556139712edd88e6419f",
+  "command": "python -m tools.rehandling_baseline",
+  "synthetic": true,
+  "timing_scope": "planner calls only; excludes replay and all physical work",
+  "fixed_cases": 4,
+  "repeats_per_treatment": 5,
+  "physical_work_seconds": null,
+  "summary": [
+    {
+      "layout": "horizontal",
+      "order": [
+        "target",
+        "a",
+        "b"
+      ],
+      "treatment": "unknown",
+      "completed_runs": 5,
+      "runs": 5,
+      "total_moves": [
+        7,
+        7,
+        7,
+        7,
+        7
+      ],
+      "rehandle_moves": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "planner_median_seconds": 0.0044148999731987715
+    },
+    {
+      "layout": "horizontal",
+      "order": [
+        "target",
+        "a",
+        "b"
+      ],
+      "treatment": "scheduled",
+      "completed_runs": 5,
+      "runs": 5,
+      "total_moves": [
+        7,
+        7,
+        7,
+        7,
+        7
+      ],
+      "rehandle_moves": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "planner_median_seconds": 0.0038785000215284526
+    },
+    {
+      "layout": "horizontal",
+      "order": [
+        "target",
+        "b",
+        "a"
+      ],
+      "treatment": "unknown",
+      "completed_runs": 5,
+      "runs": 5,
+      "total_moves": [
+        7,
+        7,
+        7,
+        7,
+        7
+      ],
+      "rehandle_moves": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "planner_median_seconds": 0.004339399980381131
+    },
+    {
+      "layout": "horizontal",
+      "order": [
+        "target",
+        "b",
+        "a"
+      ],
+      "treatment": "scheduled",
+      "completed_runs": 5,
+      "runs": 5,
+      "total_moves": [
+        7,
+        7,
+        7,
+        7,
+        7
+      ],
+      "rehandle_moves": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "planner_median_seconds": 0.005162199988262728
+    },
+    {
+      "layout": "vertical",
+      "order": [
+        "target",
+        "a",
+        "b"
+      ],
+      "treatment": "unknown",
+      "completed_runs": 5,
+      "runs": 5,
+      "total_moves": [
+        7,
+        7,
+        7,
+        7,
+        7
+      ],
+      "rehandle_moves": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "planner_median_seconds": 0.003700300003401935
+    },
+    {
+      "layout": "vertical",
+      "order": [
+        "target",
+        "a",
+        "b"
+      ],
+      "treatment": "scheduled",
+      "completed_runs": 5,
+      "runs": 5,
+      "total_moves": [
+        7,
+        7,
+        7,
+        7,
+        7
+      ],
+      "rehandle_moves": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "planner_median_seconds": 0.0047556000063195825
+    },
+    {
+      "layout": "vertical",
+      "order": [
+        "target",
+        "b",
+        "a"
+      ],
+      "treatment": "unknown",
+      "completed_runs": 5,
+      "runs": 5,
+      "total_moves": [
+        7,
+        7,
+        7,
+        7,
+        7
+      ],
+      "rehandle_moves": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "planner_median_seconds": 0.003316500020446256
+    },
+    {
+      "layout": "vertical",
+      "order": [
+        "target",
+        "b",
+        "a"
+      ],
+      "treatment": "scheduled",
+      "completed_runs": 5,
+      "runs": 5,
+      "total_moves": [
+        7,
+        7,
+        7,
+        7,
+        7
+      ],
+      "rehandle_moves": [
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "planner_median_seconds": 0.004146000021137297
+    }
+  ],
+  "run_checks": {
+    "total_runs": 40,
+    "completed_runs": 40,
+    "all_searches_complete": true,
+    "total_planner_calls": 120
+  }
+}

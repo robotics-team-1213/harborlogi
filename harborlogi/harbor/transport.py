@@ -1,12 +1,13 @@
 """Durable transport intentions and Fleet references, never cargo completion or motion authority."""
 from contextlib import closing
 from dataclasses import dataclass
-import hashlib
 import json
 import re
 import sqlite3
 
 from harbor.model import identifier, identifiers
+from harbor.execution import (read_trip_execution, read_trip_proposal_execution,
+                              submit_trip_execution, submit_trip_proposal_execution)
 
 
 def _json(value):
@@ -19,6 +20,7 @@ class TripIntent:
     candidates: tuple[str, ...]
     destination: str
     via: tuple[str, ...] = ()
+    object_ref: str = ''  # Harbor cargo code ROSY carries unread onto the S job (ADR 0029); empty = none.
 
     def __post_init__(self):
         identifier(self.request_key)
@@ -33,36 +35,23 @@ class TripIntent:
             identifier(place)
             if len(place) > 64 or any(ord(c) < 32 for c in place):
                 raise ValueError("Invalid registered place reference")
+        if self.object_ref and (self.object_ref != self.object_ref.strip() or len(self.object_ref) > 128
+                                or any(ord(c) < 32 for c in self.object_ref)):
+            raise ValueError("Invalid cargo object reference")
 
     @property
     def steps(self):
-        return [{"to": self.destination, "via": list(self.via)}]
+        from harbor.fleet_contract import trip_steps
+        return trip_steps(self)
 
     @property
     def digest(self):
-        return hashlib.sha256(_json({"candidates": list(self.candidates), "steps": self.steps}).encode()).hexdigest()
+        from harbor.fleet_contract import trip_digest
+        return trip_digest(self)
 
     def check(self, job):
-        if (not isinstance(job, dict) or job.get("request_key") != self.request_key
-                or job.get("request_digest") != self.digest or job.get("robot_id") not in self.candidates):
-            raise ValueError("Fleet transport identity does not match the saved intent")
-        identifier(job.get("mission_id"))
-        if len(job["mission_id"]) > 192 or any(ord(c) < 32 for c in job["mission_id"]):
-            raise ValueError("Invalid Fleet execution ID")
-        steps = job.get("steps")
-        if (not isinstance(steps, list) or len(steps) != 1 or not isinstance(steps[0], dict)
-                or steps[0].get("step") != self.steps[0] or steps[0].get("step_index") != 0
-                or type(job.get("current_step_index")) is not int
-                or job["current_step_index"] != (1 if job.get("status") == "GOAL_CONFIRMED" else 0)
-                or job.get("status") not in {"READY", "RUNNING", "ACTION_SUCCEEDED", "GOAL_CONFIRMED", "HOLD"}):
-            raise ValueError("Fleet transport snapshot does not match the requested step")
-        action, attempt = steps[0].get("action_id"), steps[0].get("attempt_id")
-        if action is not None:
-            identifier(action)
-        if action != attempt or job["status"] == "GOAL_CONFIRMED" and (
-                attempt is None or steps[0].get("status") != "GOAL_CONFIRMED"):
-            raise ValueError("Fleet transport attempt is not consistent")
-        return job
+        from harbor.fleet_contract import validate_trip_job
+        return validate_trip_job(self, job)
 
 
 class TransportLedger:
@@ -101,35 +90,46 @@ class TransportLedger:
     @staticmethod
     def _intent(row):
         value = json.loads(row["payload"])
-        return TripIntent(row["request_key"], tuple(value["candidates"]), value["destination"], tuple(value["via"]))
+        return TripIntent(row["request_key"], tuple(value["candidates"]), value["destination"], tuple(value["via"]),
+                          value.get("object_ref", ""))
 
     def prepare(self, intent):
         if not isinstance(intent, TripIntent):
             raise ValueError("Expected an immutable transport intent")
-        payload = _json({"candidates": intent.candidates, "destination": intent.destination, "via": intent.via})
+        cargo = {"object_ref": intent.object_ref} if intent.object_ref else {}  # Older rows keep their bytes.
+        payload = _json({"candidates": intent.candidates, "destination": intent.destination, "via": intent.via, **cargo})
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
-            old = connection.execute("SELECT digest FROM transport_intents WHERE request_key=?",
+            old = connection.execute("SELECT digest, payload FROM transport_intents WHERE request_key=?",
                                      (intent.request_key,)).fetchone()
-            if old is not None and old["digest"] != intent.digest:
+            if old is not None and (old["digest"] != intent.digest or old["payload"] != payload):
                 raise ValueError("Transport request key conflicts with existing contents")
             connection.execute("INSERT OR IGNORE INTO transport_intents(request_key,payload,digest,state) "
                                "VALUES(?,?,?,'PLANNED')", (intent.request_key, payload, intent.digest))
 
-    def _adopt(self, row, job):
-        job = self._intent(row).check(job)
-        if row["mission_id"] is not None and row["mission_id"] != job["mission_id"]:
+    def _adopt(self, row, execution):
+        # A proposal waiting for another operator has no job yet; it must not be mistaken for an accepted trip.
+        state = "AWAITING_APPROVAL" if execution.phase == "awaiting_approval" else "ACKNOWLEDGED"
+        if row["mission_id"] is not None and row["mission_id"] != execution.mission_id:
             raise ValueError("Fleet transport identity changed")
         with closing(self._connect()) as connection, connection:
-            result = connection.execute("UPDATE transport_intents SET state='ACKNOWLEDGED',mission_id=?,version=version+1 "
-                "WHERE request_key=? AND version=?", (job["mission_id"], row["request_key"], row["version"]))
+            result = connection.execute("UPDATE transport_intents SET state=?,mission_id=?,version=version+1 "
+                "WHERE request_key=? AND version=?", (state, execution.mission_id, row["request_key"], row["version"]))
             if result.rowcount != 1:
                 raise ValueError("Transport intent changed while the response was pending; reconcile again")
-        return job
+        return execution.job
 
     def submit(self, key, client, *, operator_confirmed):
+        """Direct named-operator TRIP start; a service identity must use propose()."""
         if operator_confirmed is not True:
             raise ValueError("Explicit operator confirmation is required to start transport")
+        return self._submit(key, client, submit_trip_execution)
+
+    def propose(self, key, client):
+        """D-908: ask Fleet for approval once. Nothing moves until a different named operator admits."""
+        return self._submit(key, client, submit_trip_proposal_execution)
+
+    def _submit(self, key, client, send):
         row = self.read(key)
         if row["state"] != "PLANNED":
             raise ValueError("Transport was already submitted or is uncertain; reconcile without resubmitting")
@@ -141,10 +141,7 @@ class TransportLedger:
         row = {**row, "version": row["version"] + 1, "state": "SUBMITTING"}
         intent = self._intent(row)
         try:
-            result = client.trip(intent.candidates, intent.steps, request_key=key)
-            job = client.trip_request(key)["job"]
-            if result["job"]["mission_id"] != job["mission_id"]:
-                raise ValueError("Transport submission and readback identify different executions")
+            job = send(client, intent)
             return self._adopt(row, job)
         except BaseException:
             with closing(self._connect()) as connection, connection:
@@ -153,103 +150,13 @@ class TransportLedger:
             raise
 
     def reconcile(self, key, client):
+        return self._reconcile(key, client, read_trip_execution)
+
+    def reconcile_proposal(self, key, client):
+        return self._reconcile(key, client, read_trip_proposal_execution)
+
+    def _reconcile(self, key, client, read):
         row = self.read(key)
         if row["state"] == "SUBMITTING":
             raise ValueError("Submission is still pending")
-        return self._adopt(row, client.trip_request(key)["job"])
-
-    # --- D-908 proposal path (API v1.329). States: PLANNED, SUBMITTING, UNCERTAIN, PROPOSED (pending operator
-    # admission), ADMITTED (job exists), GOAL_CONFIRMED (transport fact only, never cargo arrival).
-    # This ledger never admits: the client has no admit method and admission is a named operator's act.
-
-    def read_proposal(self, key):
-        with closing(self._connect()) as connection:
-            row = connection.execute("SELECT * FROM transport_proposals WHERE request_key=?", (key,)).fetchone()
-        return None if row is None else dict(row)
-
-    def open_proposal_keys(self):
-        with closing(self._connect()) as connection:
-            return [r[0] for r in connection.execute(
-                "SELECT request_key FROM transport_proposals WHERE state!='GOAL_CONFIRMED' ORDER BY rowid")]
-
-    def prepare_proposal(self, intent):
-        if not isinstance(intent, TripIntent):
-            raise ValueError("Expected an immutable transport intent")
-        payload = _json({"candidates": intent.candidates, "destination": intent.destination, "via": intent.via})
-        with closing(self._connect()) as connection, connection:
-            connection.execute("BEGIN IMMEDIATE")
-            old = connection.execute("SELECT digest FROM transport_proposals WHERE request_key=?",
-                                     (intent.request_key,)).fetchone()
-            if old is not None and old["digest"] != intent.digest:
-                raise ValueError("Transport request key conflicts with existing contents")
-            connection.execute("INSERT OR IGNORE INTO transport_proposals(request_key,payload,digest,state) "
-                               "VALUES(?,?,?,'PLANNED')", (intent.request_key, payload, intent.digest))
-
-    def _set_proposal(self, row, state, **columns):
-        names = "".join(f",{name}=?" for name in columns)
-        with closing(self._connect()) as connection, connection:
-            result = connection.execute(
-                f"UPDATE transport_proposals SET state=?,version=version+1{names} WHERE request_key=? AND version=?",
-                (state, *columns.values(), row["request_key"], row["version"]))
-            if result.rowcount != 1:
-                raise ValueError("Transport proposal changed while the response was pending; reconcile again")
-
-    def _check_proposal(self, intent, proposal):
-        if not isinstance(proposal, dict):
-            raise ValueError("Fleet trip proposal does not match the saved intent")
-        admitted = proposal.get("status") == "ADMITTED"
-        if (proposal.get("request_key") != intent.request_key
-                or proposal.get("request_digest") != intent.digest
-                or proposal.get("candidate_robot_ids") != list(intent.candidates)
-                or proposal.get("steps") != intent.steps or proposal.get("status") not in {"PROPOSED", "ADMITTED"}
-                or admitted != all(proposal.get(k) is not None for k in ("approved_by", "mission_id", "dispatch_generation"))
-                or admitted and proposal["approved_by"] == proposal.get("proposal_principal_id")):
-            raise ValueError("Fleet trip proposal does not match the saved intent")
-        identifier(proposal.get("proposal_id"))
-        return proposal
-
-    def propose(self, key, client):
-        """Send the proposal exactly once. Any failure leaves UNCERTAIN; recover with reconcile_proposal(key)."""
-        row = self.read_proposal(key)
-        if row is None:
-            raise ValueError("Unknown transport proposal")
-        if row["state"] != "PLANNED":
-            raise ValueError("Proposal was already sent or is uncertain; reconcile without resending")
-        self._set_proposal(row, "SUBMITTING")
-        row = {**row, "version": row["version"] + 1}
-        intent = self._intent(row)
-        try:
-            sent = client.trip_propose(intent.candidates, intent.steps, request_key=key)["proposal"]
-            self._check_proposal(intent, sent)
-            return self._adopt_proposal(row, intent, client)
-        except BaseException:
-            with closing(self._connect()) as connection, connection:
-                connection.execute("UPDATE transport_proposals SET state='UNCERTAIN',version=version+1 "
-                                   "WHERE request_key=? AND version=? AND state='SUBMITTING'", (key, row["version"]))
-            raise
-
-    def reconcile_proposal(self, key, client):
-        """Read the original key only: proposal first, then the admitted job through the v1.298 key lookup."""
-        row = self.read_proposal(key)
-        if row is None:
-            raise ValueError("Unknown transport proposal")
-        if row["state"] in ("PLANNED", "SUBMITTING"):
-            raise ValueError("Proposal has not been sent; propose it or wait for the pending call")
-        return self._adopt_proposal(row, self._intent(row), client)
-
-    def _adopt_proposal(self, row, intent, client):
-        proposal = self._check_proposal(intent, client.trip_proposal_request(row["request_key"])["proposal"])
-        if row["proposal_id"] not in (None, proposal["proposal_id"]):
-            raise ValueError("Fleet proposal identity changed")
-        if proposal["status"] == "PROPOSED":
-            if row["state"] in ("ADMITTED", "GOAL_CONFIRMED"):
-                raise ValueError("Fleet proposal regressed after admission")
-            self._set_proposal(row, "PROPOSED", proposal_id=proposal["proposal_id"])
-        else:
-            job = intent.check(client.trip_request(row["request_key"])["job"])
-            if job["mission_id"] != proposal["mission_id"]:
-                raise ValueError("Admitted proposal and trip job identify different executions")
-            self._set_proposal(row, "GOAL_CONFIRMED" if job["status"] == "GOAL_CONFIRMED" else "ADMITTED",
-                               proposal_id=proposal["proposal_id"], mission_id=job["mission_id"],
-                               job_status=job["status"])
-        return self.read_proposal(row["request_key"])
+        return self._adopt(row, read(client, self._intent(row)))

@@ -3,7 +3,8 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from harbor.model import YARD_ARMS, aware_time
-from harbor.spatial import CargoShape, Placement, SpatialPolicy, SpatialSnapshot, validate_schedule
+from harbor.spatial import (CargoShape, Placement, SpatialPolicy, SpatialSnapshot, order_relation, stack_ok,
+                           validate_schedule)
 
 
 PLACEMENT_CANDIDATE_LIMIT = 20_000
@@ -80,6 +81,8 @@ def plan_placement(snapshot: SpatialSnapshot, incoming: CargoShape, policy: Spat
                               for a, r, c, level in snapshot.cells(p) if level > 1}
                   for p in snapshot.placements}
     yard_bays = {(cell.row, cell.column): cell.bay_id for cell in snapshot.layout.cells}
+    lengths = {s.cargo_id: s.length_cells for s in snapshot.shapes}
+    by_id = {p.cargo_id: p for p in snapshot.placements}
     choices = []
     examined = 0
     for area_id in sorted(policy.storage_areas):
@@ -104,6 +107,8 @@ def plan_placement(snapshot: SpatialSnapshot, incoming: CargoShape, policy: Spat
                                    for arm in YARD_ARMS):
                             continue
                         destination = Placement(incoming.cargo_id, area_id, row, column, level, orientation)
+                        if not stack_ok(area, destination, incoming.length_cells, lengths, by_id, occupied):
+                            continue  # the area's stack rule (design 33)
                         # Use the observation validator as the final geometry/support authority.
                         replace(snapshot, shapes=snapshot.shapes+(incoming,),
                                 placements=snapshot.placements+(destination,))
@@ -118,16 +123,11 @@ def plan_placement(snapshot: SpatialSnapshot, incoming: CargoShape, policy: Spat
                         earlier = []
                         unknown = []
                         for cargo in sorted(lower):
-                            rank = schedule.get(cargo)
-                            if rank is None:
-                                unknown.append(cargo)
-                            elif incoming_rank is None or rank[0] < incoming_rank[0]:
+                            relation = order_relation(schedule.get(cargo), incoming_rank)
+                            if relation == 'blocked':
                                 earlier.append(cargo)
-                            elif rank[0] == incoming_rank[0]:
-                                if rank[1] is None or incoming_rank[1] is None:
-                                    unknown.append(cargo)
-                                elif rank[1] < incoming_rank[1]:
-                                    earlier.append(cargo)
+                            elif relation == 'unknown':
+                                unknown.append(cargo)
                         rationale = ('DESTINATION_FOOTPRINT_REACH_VERIFIED',)
                         if incoming_rank is None:
                             rationale += ('INCOMING_OUTBOUND_ORDER_UNKNOWN',)

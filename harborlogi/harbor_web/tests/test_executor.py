@@ -96,7 +96,7 @@ def evidence_provider(now):
         placement = PlacementEvidence(f'{tag}-p', mission, attempt, payload['revision'],
                                       PLACEMENT_SOURCE, now, cargo, location)
         retreat = RetreatEvidence(f'{tag}-r', mission, attempt, payload['revision'],
-                                  RETREAT_SOURCE, now, tuple(ArmRetreat(arm, f'zone-{arm}', True, (0.0, 0.0),
+                                  RETREAT_SOURCE, now, tuple(ArmRetreat(arm, f'zone-{arm}', True,
                                   now, payload['revision'], True) for arm in arms))
         return MoveEvidence(placement, retreat)
     return build
@@ -176,6 +176,36 @@ class ExecutorTests(TestCase):
         self.assertEqual(sorted(self.fleet.posted_keys()), sorted([f'{key}:0', f'{key}:1', f'{key}:2']))
         self.assertFalse(any('admit' in path or 'observations' in path or 'compile' in path
                              for _, path, _ in self.fleet.calls))
+
+    def test_initial_and_next_submit_use_one_bound_readback_and_save_the_fact(self):
+        from harbor_web.models import CommandFact
+        command = self.confirmed_command()
+        self.assertEqual(len(self.fleet.calls), 2)
+        fact = CommandFact.objects.get(command=command)
+        self.assertEqual(fact.job['mission_id'], command.mission_id)
+        self.assertNotIn('payload', commands.command_detail(command)['ledger'])
+        self.fleet.status = 'GOAL_CONFIRMED'
+        executor.tick(registry=self.registry, evidence=evidence_provider(timezone.now()))
+        self.fleet.calls.clear()
+        executor.tick(registry=self.registry)
+        command.refresh_from_db()
+        # A completed receipt is read once as part of this submission snapshot.
+        self.assertEqual(len(self.fleet.calls), 3)
+        fact = CommandFact.objects.filter(command=command).latest('pk')
+        self.assertEqual(fact.job['mission_id'], command.mission_id)
+        self.assertEqual(fact.receipt['mission_id'], command.mission_id)
+
+    def test_submission_audit_names_the_submitting_operator(self):
+        from django.contrib.auth.models import User, Group
+        from harbor_web.models import Audit
+        plan = self.plan()
+        command = commands.prepare_command(self.operator, plan_id=plan.pk, expected_version=1)
+        submitter = User.objects.create_user('second-operator')
+        submitter.groups.add(Group.objects.get(name='operator'))
+        command = commands.submit_command(submitter, command_id=command.pk, expected_version=command.version)
+        self.assertEqual(command.state, 'RECONCILED')
+        audit = Audit.objects.get(action='command.reconciled', object_id=str(command.pk))
+        self.assertEqual(audit.actor, submitter)
 
     def test_fleet_reads_alone_never_confirm_a_stage(self):
         command = self.confirmed_command()

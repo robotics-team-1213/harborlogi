@@ -112,7 +112,7 @@ def exercise_workbench(page, output):
     move('C1', 'stand', 1, 1, 1)
     assert page.locator('[data-scene-error]').inner_text()
     assert figure.get_attribute('data-draft-changes') == '0', 'Cannot remove a supporting cargo'
-    move('C2', 'temp', 1, 1, 1)
+    move('C2', 'temp_a', 1, 1, 1)
     assert not page.locator('[data-scene-error]').inner_text()
     move('C1', 'stand', 1, 1, 1)
     assert figure.get_attribute('data-draft-changes') == '2'
@@ -120,7 +120,7 @@ def exercise_workbench(page, output):
     speed.select_option('2')
     fixture = json.loads(source)
     final_draft = {b['id']: {key: b[key] for key in ('x', 'y', 'z')} for b in fixture['frames'][0]['boxes']}
-    for code, area_id in [('C1', 'stand'), ('C2', 'temp')]:
+    for code, area_id in [('C1', 'stand'), ('C2', 'temp_a')]:
         area = next(a for a in fixture['areas'] if a['id'] == area_id)
         final_draft[code] = dict(x=area['x'], y=area['y'], z=0)
     wait_rendered(final_draft)

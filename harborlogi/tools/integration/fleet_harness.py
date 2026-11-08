@@ -262,12 +262,13 @@ class RealFleet:
 
     def __init__(self, root: Optional[Path] = None, port: Optional[int] = None, work_s: float = 1.0,
                  speed: float = 0.5, workdir: Optional[Path] = None, open_dispatch: bool = True,
-                 transport_only: bool = False):
+                 transport_only: bool = False, extra_app: Optional[dict] = None):
         self.root = Path(root or rosy_root() or "")
         if not (self.root / "operations/fleet/fleet/server/app.py").is_file():
             raise RuntimeError(f"rosy-platform 소스 root가 아님: {self.root}")
         self.port, self.work_s, self.speed = port or _free_port(), work_s, speed
         self.transport_only = transport_only
+        self.extra_app = extra_app or {}   # 같은 Fleet 프로세스에 더 설치할 create_app 인자(전체 흐름의 ARM)
         self.open_dispatch = open_dispatch   # False: 새 Fleet처럼 출발이 닫힌 채 둔다 (사람 · 앱이 열게)
         self.url = f"http://127.0.0.1:{self.port}"
         self.workdir = Path(workdir or tempfile.mkdtemp(prefix="harbor-real-fleet-"))
@@ -372,7 +373,7 @@ class RealFleet:
             **cell_options, deployment_profile="simulation",
             site_maps=maps, map_pose_port=drive, lane_junction=drive,
             # 운행 작업(D-763)은 사이트 운행 임대 · 교통 권한이 켜져 있어야 받는다 (fleet_trips.py의 시뮬 설정과 같음)
-            trip_lease={"required": True, "ttl_s": 8.0}, traffic_authority=True)
+            trip_lease={"required": True, "ttl_s": 8.0}, traffic_authority=True, **self.extra_app)
         self.server = uvicorn.Server(uvicorn.Config(self.app, host="127.0.0.1", port=self.port, log_level="warning"))
         self.thread = threading.Thread(target=self.server.run, daemon=True)
         self.thread.start()

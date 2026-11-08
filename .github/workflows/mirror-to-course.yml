@@ -1,0 +1,37 @@
+name: mirror-to-course
+
+# 팀 저장소 main이 정본이다. main의 test가 통과한 커밋만 과정 저장소 main에 같은 커밋으로 맞춘다.
+on:
+  workflow_run:
+    workflows: [test]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-to-course
+
+jobs:
+  mirror:
+    # 과정 저장소에 복사된 이 파일은 돌지 않는다. PR 쪽 test 실행은 head 브랜치 이름이 main이어도 반영하지 않는다.
+    if: >-
+      github.repository == 'robotics-team-1213/harborlogi' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success'))
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    env:
+      TOKEN: ${{ secrets.COURSE_REPO_TOKEN }}
+    steps:
+      - if: env.TOKEN == ''
+        run: echo "::error::COURSE_REPO_TOKEN secret is missing" && exit 1
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      # force 없이 push: 과정 저장소에만 생긴 커밋이 있으면 실패해서 드러난다.
+      - run: git push "https://x-access-token:${TOKEN}@github.com/kernel-robot-8th/kernel-robot-repo-2.git" HEAD:refs/heads/main

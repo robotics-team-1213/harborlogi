@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from harbor_web import commands, executor, services
 from harbor_web.command_models import Command
+from harbor_web.models import Audit, CommandFact
 from harbor_web.services import Conflict
 from harbor_web.tests import test_executor
 
@@ -103,3 +104,82 @@ class CommandHistoryTests(TestCase):
         self.assertEqual(response.status_code, 302)
         command.refresh_from_db()
         self.assertEqual(command.state, 'CANCELLED')
+
+    def test_closed_command_rejects_execution_operations_without_side_effects(self):
+        command = self.confirmed()
+        for state in ('CANCELLED', 'COMPLETED', 'BLOCKED'):
+            for operation in ('submit', 'reconcile', 'resume', 'cancel'):
+                with self.subTest(state=state, operation=operation):
+                    Command.objects.filter(pk=command.pk).update(state=state)
+                    command.refresh_from_db()
+                    before = (command.version, command.mission_id, command.reason)
+                    row = self.registry.ledger.read(commands._key(command))
+                    calls = list(self.fleet.calls)
+                    counts = (Audit.objects.count(), CommandFact.objects.count())
+                    args = dict(command_id=command.pk, expected_version=command.version)
+                    with self.assertRaises(Conflict):
+                        if operation == 'cancel':
+                            commands.cancel_command(self.operator, reason='closed work', **args)
+                        elif operation == 'submit':
+                            commands.submit_command(self.operator, **args)
+                        else:
+                            commands.reconcile_command(self.operator, resume=operation == 'resume', **args)
+                    command.refresh_from_db()
+                    self.assertEqual(command.state, state)
+                    self.assertEqual((command.version, command.mission_id, command.reason), before)
+                    self.assertEqual(self.registry.ledger.read(commands._key(command)), row)
+                    self.assertEqual(self.fleet.calls, calls)
+                    self.assertEqual((Audit.objects.count(), CommandFact.objects.count()), counts)
+
+    def test_cancelled_work_cannot_be_reopened_by_a_post(self):
+        command = self.confirmed()
+        cancelled = commands.cancel_command(self.operator, command_id=command.pk,
+            expected_version=command.version, reason='Operator stop')
+        closed = commands.close_cancelled(self.operator, command_id=command.pk,
+            expected_version=cancelled.version)
+        self.client.force_login(self.operator)
+        before = list(self.fleet.calls)
+        for action in ('submit', 'reconcile', 'cancel'):
+            with self.subTest(action=action):
+                response = self.client.post(f'/work/{closed.pk}/', dict(action=action,
+                    expected_version=closed.version, reason='Already closed'))
+                self.assertEqual(response.status_code, 409)
+        closed.refresh_from_db()
+        self.assertEqual(closed.state, 'CANCELLED')
+        self.assertEqual(self.registry.ledger.read(commands._key(closed))['state'], 'HOLD')
+        self.assertEqual(self.fleet.calls, before)
+
+    def test_final_stage_and_completed_history_have_no_current_job(self):
+        command = self.confirmed()
+        self.fleet.status = 'GOAL_CONFIRMED'
+
+        def stage_evidence(command, row, payload, phase):
+            if phase == 'step':
+                return test_executor.evidence_provider(timezone.now())(command, row, payload, phase)
+            return None
+
+        for _ in range(8):
+            executor.tick(registry=self.registry, evidence=stage_evidence, now=timezone.now())
+            if self.registry.ledger.read(commands._key(command))['state'] == 'AWAITING_FINAL_EVIDENCE':
+                break
+        self.client.force_login(self.operator)
+        for state in ('AWAITING_FINAL_EVIDENCE', 'COMPLETED'):
+            if state == 'COMPLETED':
+                executor.tick(registry=self.registry, evidence=test_executor.evidence_provider(timezone.now()),
+                    now=timezone.now())
+            command.refresh_from_db()
+            before = self.registry.ledger.read(commands._key(command))
+            self.assertEqual(before['state'], state)
+            self.assertEqual(before['step_index'], len(command.binding['moves']))
+            self.assertIsNone(before['mission_id'])
+            calls = list(self.fleet.calls)
+            detail = commands.command_detail(command)
+            self.assertEqual(detail['ledger']['state'], state)
+            self.assertIsNone(detail['job'])
+            self.assertIsNone(detail['receipt'])
+            for url in (f'/work/{command.pk}/', f'/requests/{command.order_id}/'):
+                self.assertEqual(self.client.get(url).status_code, 200)
+            self.assertEqual(self.registry.ledger.read(commands._key(command)), before)
+            self.assertEqual(self.fleet.calls, calls)
+        self.assertEqual(command.state, 'COMPLETED')
+        self.assertTrue(CommandFact.objects.filter(command=command).exists())

@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # Actions are pinned to commit SHAs, so nothing else tells us when they fall behind.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]

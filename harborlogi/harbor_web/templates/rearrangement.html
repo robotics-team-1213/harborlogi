@@ -1,0 +1,16 @@
+{% extends 'base.html' %}{% block title %}자동 재배치{% endblock %}{% block content %}
+<div class="page-head"><div><span class="eyebrow">화물 재배치 R2</span><h1>자동 재배치</h1><p>사용자가 켠 허용 범위 안에서만 업무 실행기가 순서가 어긋난 화물을 미리 정리합니다. 계획마다 확인하지 않으며, 반출이 있으면 언제나 반출이 먼저입니다.</p></div></div>
+<h2>허용 상태</h2>
+{% if authorization %}<div class="notice">켜짐 · {{ authorization.valid_until|date:'m-d H:i' }}까지 · k={{ authorization.k }} · 최대 이동 {{ authorization.max_moves }} · 하루 {{ authorization.daily_limit }}회 · 켠 사용자 {{ authorization.created_by.username }}</div>
+{% else %}<div class="notice">꺼짐 또는 만료. 새 자동 재배치는 시작하지 않습니다.</div>{% endif %}
+{% if can_operate %}<form method="post">{% csrf_token %}{{ form.as_p }}<div class="actions"><button name="action" value="enable">{% if authorization %}값을 바꿔 다시 켜기{% else %}허용 켜기{% endif %}</button>{% if authorization %}<button class="quiet" name="action" value="disable">허용 끄기</button>{% endif %}<button class="quiet" name="action" value="request">지금 재배치 계획 요청 (직접 확인 필요)</button></div></form>
+<p class="helptext">허용을 끄면 새 재배치를 시작하지 않습니다. 진행 중인 이동은 마칩니다. 자동 실행도 ROSY Fleet 승인 범위가 없으면 멈추며 완료로 보고하지 않습니다.</p>{% endif %}
+<h2>재배치 계획 · 자동 실행과 직접 요청 구분</h2>
+{% if rows %}<div class="table-wrap"><table><thead><tr><th scope="col">계획</th><th scope="col">구분</th><th scope="col">상태</th><th scope="col">막힘 쌍 B</th><th scope="col">미확인 쌍 N</th><th scope="col">개선량</th><th scope="col">이동</th><th scope="col">실행</th></tr></thead><tbody>
+{% for row in rows %}<tr><td><a href="/plans/{{ row.plan.pk }}/">#{{ row.plan.pk }}</a><small>{{ row.plan.created_at|date:'m-d H:i' }}</small></td><td>{% if row.record.automatic %}자동 실행 · 허용 #{{ row.record.authorization_id }}{% else %}직접 요청{% endif %}</td><td>{{ row.plan.result.status }}</td><td>{{ row.record.blocked_before }} → {{ row.record.blocked_after }}</td><td>{{ row.record.unknown_before }} → {{ row.record.unknown_after }}</td><td>{{ row.record.gain }}</td><td>{{ row.record.move_count }}</td><td>{% if row.command %}<a href="/work/{{ row.command.pk }}/">{{ row.command.state }}</a>{% else %}없음{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+{% else %}<div class="empty"><p>재배치 계획이 없습니다.</p></div>{% endif %}
+<h2>실행하지 않은 이유 (최근)</h2>
+<ul>{% for hold in holds %}<li>{{ hold.created_at|date:'m-d H:i' }} · {{ hold.detail.reason }}</li>{% empty %}<li>기록 없음</li>{% endfor %}</ul>
+<h2>허용 이력</h2>
+<ul>{% for item in history %}<li>#{{ item.pk }} · {{ item.created_at|date:'m-d H:i' }} {{ item.created_by.username }} · k={{ item.k }}, 이동 {{ item.max_moves }}, 하루 {{ item.daily_limit }}회, {{ item.valid_until|date:'m-d H:i' }}까지{% if item.disabled_at %} · 끔 {{ item.disabled_at|date:'m-d H:i' }} {{ item.disabled_by.username }}{% endif %}</li>{% empty %}<li>기록 없음</li>{% endfor %}</ul>
+{% endblock %}
