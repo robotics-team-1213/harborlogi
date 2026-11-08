@@ -68,12 +68,6 @@ class TransportLedger:
                                "mission_id TEXT,version INTEGER NOT NULL DEFAULT 0)")
             connection.execute("UPDATE transport_intents SET state='UNCERTAIN',version=version+1 "
                                "WHERE state='SUBMITTING'")
-            # D-908 / API v1.329 proposal path: Harbor proposes once; a named operator admits in Fleet.
-            connection.execute("CREATE TABLE IF NOT EXISTS transport_proposals (request_key TEXT PRIMARY KEY, "
-                               "payload TEXT NOT NULL,digest TEXT NOT NULL,state TEXT NOT NULL, proposal_id TEXT, "
-                               "mission_id TEXT,job_status TEXT,version INTEGER NOT NULL DEFAULT 0)")
-            connection.execute("UPDATE transport_proposals SET state='UNCERTAIN',version=version+1 "
-                               "WHERE state='SUBMITTING'")
 
     def _connect(self):
         connection = sqlite3.connect(self.path, timeout=10)
