@@ -34,8 +34,9 @@ def editor_draft(source_payload=None):
     areas = services.map_areas(payload)
     presentation = services.area_presentation(payload)
     storage = set(payload.get('storage_areas', ['yard']))
+    outbound = {payload['outbound_stand'], *payload.get('extra_outbound_stands', [])}
     return dict(areas=[dict(id=a.area_id, role=('storage' if a.area_id in storage else
-        'outbound' if a.area_id == payload['outbound_stand'] else 'temporary'),
+        'outbound' if a.area_id in outbound else 'temporary'),
         rows=a.rows, columns=a.columns, levels=a.levels, **presentation[a.area_id],
         cells=deepcopy(payload['yard_layout']['cells']) if a.area_id == 'yard' else []) for a in areas])
 
@@ -88,8 +89,8 @@ def _normalize(dto):
     ids = [a['id'] for a in areas]
     if len(set(ids)) != len(ids) or 'yard' not in ids:
         raise ValidationError('Unique areas including yard are required.')
-    if sum(a['role'] == 'outbound' for a in areas) != 1:
-        raise ValidationError('Exactly one outbound area is required.')
+    if not any(a['role'] == 'outbound' for a in areas):
+        raise ValidationError('At least one outbound area is required.')
     if sum(a['rows'] * a['columns'] * a['levels'] for a in areas) > 4096:
         raise ValidationError('Map exceeds 4096 positions.')
     for i, a in enumerate(areas):
@@ -112,13 +113,20 @@ def build_map(source_payload, dto, *, source_id=None):
         if {cell['bay_id'] for cell in yard['cells']} & (current.keys() | {source['conveyor']}):
             raise ValidationError('Yard cell IDs must be separate from area and conveyor IDs.')
         payload = deepcopy(source)
+        outbound = [a['id'] for a in normalized['areas'] if a['role'] == 'outbound']
         payload.update(yard_layout={k: deepcopy(yard[k]) for k in ('rows', 'columns', 'levels', 'cells')},
             spatial_areas=[dict(area_id=a['id'], **{k: a[k] for k in ('rows', 'columns', 'levels')})
                 for a in normalized['areas'] if a['id'] != 'yard'],
             storage_areas=[a['id'] for a in normalized['areas'] if a['role'] == 'storage'],
             temporary_bays=[a['id'] for a in normalized['areas'] if a['role'] == 'temporary'],
-            outbound_stand=next(a['id'] for a in normalized['areas'] if a['role'] == 'outbound'),
+            outbound_stand=outbound[0], extra_outbound_stands=outbound[1:],
             area_presentation={a['id']: {k: a[k] for k in ('label', 'x', 'y')} for a in normalized['areas']})
+        rules = {k: v for k, v in payload.get('stack_rules', {}).items() if k in current}
+        payload.pop('stack_rules', None)
+        if rules:
+            payload['stack_rules'] = rules
+        if not outbound[1:]:
+            payload.pop('extra_outbound_stands')  # keep single-stand payloads byte-compatible
         unchanged_areas = {key for key, a in current.items() if key in previous and
             all(a[k] == previous[key][k] for k in ('role', 'rows', 'columns', 'levels'))}
         # Inferred legacy auxiliary dimensions are a draft, not installation evidence.
