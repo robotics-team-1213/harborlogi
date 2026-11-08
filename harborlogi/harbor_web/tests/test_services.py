@@ -202,6 +202,26 @@ class ServicesTests(TestCase):
         plan = services.make_plan(self.operator, order_id=third.pk, expected_version=1, observation_id=observed.pk, now=self.now)
         self.assertEqual(plan.result['reason'], 'PRIORITY_ORDER_BLOCKED')
 
+    def test_completed_outbound_no_longer_blocks_later_priorities(self):
+        from harbor_web.models import Command
+        first = self.order()
+        observed = self.observation()
+        done = services.make_plan(self.operator, order_id=first.pk, expected_version=1, observation_id=observed.pk, now=self.now)
+        later = self.order(cargo=first.cargo, priority_group=2)
+        blocked = services.make_plan(self.operator, order_id=later.pk, expected_version=1, observation_id=observed.pk, now=self.now)
+        self.assertEqual(blocked.result['reason'], 'PRIORITY_ORDER_BLOCKED')
+        command = Command.objects.create(order=first, plan=done, actor=self.operator, plan_version=1, ledger_identity='l',
+            fleet_origin='o', fleet_principal='p', body_digest='a' * 64, binding={}, state='RECONCILED')
+        still = services.make_plan(self.operator, order_id=later.pk, expected_version=1, observation_id=observed.pk, now=self.now)
+        self.assertEqual(still.result['reason'], 'PRIORITY_ORDER_BLOCKED')  # handed off is not finished
+        before = services.queue_digest()
+        Command.objects.filter(pk=command.pk).update(state='COMPLETED')
+        self.assertNotEqual(services.queue_digest(), before)  # the blocked plan now reads as needing review
+        from harbor_web.workspace import plan_changes
+        self.assertTrue(plan_changes(later, still))
+        freed = services.make_plan(self.operator, order_id=later.pk, expected_version=1, observation_id=observed.pk, now=self.now)
+        self.assertNotEqual(freed.result['reason'], 'PRIORITY_ORDER_BLOCKED')
+
     def test_any_group_allows_either_member(self):
         first = self.order(tie_policy='ANY')
         second = self.order(cargo=first.cargo, tie_policy='ANY')

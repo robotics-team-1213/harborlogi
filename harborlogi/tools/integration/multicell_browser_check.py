@@ -57,7 +57,7 @@ def main():
             ('C1', 1, 1, 1), ('C2', 1, 1, 2), ('C4', 2, 3, 1), ('C5', 3, 1, 1), ('C6', 3, 2, 2), ('C7', 3, 2, 3)]]
     observed = services.record_observation(admin, source_id='spatial-synthetic', source_revision='one',
         observed_at=timezone.now(), provenance='SYNTHETIC', condition=condition,
-        payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp', 'stand'], placements=placements, holdings=[]))
+        payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp_a', 'temp_b', 'stand'], placements=placements, holdings=[]))
     order = services.create_order(operator, cargo=Cargo.objects.get(code='C1'), kind='OUTBOUND',
         priority_group=1, sequence=1, tie_policy='FIXED', note='합성 다칸 반출 지시')
     with socket.socket() as allocated:
@@ -149,13 +149,13 @@ def main():
             page.locator('[data-yard-stage="2"]').click()
             assert page.locator('[data-scene-play]').get_attribute('aria-pressed') == 'true'
             page.wait_for_function('() => document.querySelector("canvas").dataset.frame === "2" && document.querySelector("canvas").dataset.moving === "false"')
-            page.locator('[data-plan-step="2"]').first.click()
-            page.wait_for_function('() => document.querySelector("canvas").dataset.frame === "2" && document.querySelector("canvas").dataset.moving === "true"')
+            page.locator('[data-plan-sequence]').click()
+            page.wait_for_function('() => document.querySelector("canvas").dataset.moving === "true"')
             assert page.locator('[data-scene-play]').get_attribute('aria-pressed') == 'true'
             page.locator('[data-scene-play]').click()
             assert page.locator('canvas').get_attribute('data-moving') == 'false'
             assert page.locator('[data-scene-play]').get_attribute('aria-pressed') == 'false'
-            result['checks'].append('Cargo route step jumps to its preceding snapshot and animates only that step; manual motion can be stopped')
+            result['checks'].append('One sequence button replays the stored plan from the observed layout; manual motion can be stopped')
             result['checks'].append('3D Canvas renders six atomic cuboids; footprint selection, real projected hit selection, keyboard camera and complete explicit playback stay synchronized')
             result['checks'].append('Explicit stop snaps to selected endpoint; manual step interrupts automatic playback without another step')
             from tools.integration.linked_yard_browser_checks import exercise_linked_views
@@ -204,7 +204,7 @@ def main():
                 page.locator('[data-yard-stage="1"]').click()
                 step = page.locator('[data-yard-linked-flat]')
                 assert step.locator('[data-grid-area="yard"] [data-linked-level="2"]').get_attribute('aria-pressed') == 'true'
-                assert step.locator('[data-grid-area="temp"] [data-cargo-id="C2"]').is_visible()
+                assert step.locator('[data-grid-area^="temp_"] [data-cargo-id="C2"]').is_visible()
                 page.locator('[data-yard-stage="2"]').click()
                 step = page.locator('[data-yard-linked-flat]')
                 assert step.locator('[data-grid-area="yard"] [data-cargo-id="C1"]').count() == 0

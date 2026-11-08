@@ -13,6 +13,7 @@ from harbor_web import commands, services
 from harbor_web.command_models import ACTIVE_COMMAND_STATES
 from harbor_web.coordination import serialized
 from harbor_web.models import Audit, CargoFootprint, Command, Observation, Order, Plan, RearrangeAuthorization
+from harbor_web.order_queue import open_outbound_orders
 
 DEFAULT_VALID_FOR = timezone.timedelta(hours=8)
 HOLD_ACTION = 'rearrange.hold'
@@ -20,8 +21,7 @@ HOLD_ACTION = 'rearrange.hold'
 
 def outbound_pending():
     """An outbound order is pending until a Command for it has completed (orders have no close state)."""
-    done = Command.objects.filter(state='COMPLETED').values('order_id')
-    return Order.objects.filter(kind='OUTBOUND').exclude(pk__in=done).exists()
+    return open_outbound_orders().exists()
 
 
 def pending_inbound_lengths():

@@ -3,7 +3,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
 from harbor.model import YARD_ARMS, aware_time
-from harbor.spatial import (CargoShape, Placement, SpatialPolicy, SpatialSnapshot, order_relation,
+from harbor.spatial import (CargoShape, Placement, SpatialPolicy, SpatialSnapshot, order_relation, stack_ok,
                            validate_schedule)
 
 
@@ -81,6 +81,8 @@ def plan_placement(snapshot: SpatialSnapshot, incoming: CargoShape, policy: Spat
                               for a, r, c, level in snapshot.cells(p) if level > 1}
                   for p in snapshot.placements}
     yard_bays = {(cell.row, cell.column): cell.bay_id for cell in snapshot.layout.cells}
+    lengths = {s.cargo_id: s.length_cells for s in snapshot.shapes}
+    by_id = {p.cargo_id: p for p in snapshot.placements}
     choices = []
     examined = 0
     for area_id in sorted(policy.storage_areas):
@@ -105,6 +107,8 @@ def plan_placement(snapshot: SpatialSnapshot, incoming: CargoShape, policy: Spat
                                    for arm in YARD_ARMS):
                             continue
                         destination = Placement(incoming.cargo_id, area_id, row, column, level, orientation)
+                        if not stack_ok(area, destination, incoming.length_cells, lengths, by_id, occupied):
+                            continue  # the area's stack rule (design 33)
                         # Use the observation validator as the final geometry/support authority.
                         replace(snapshot, shapes=snapshot.shapes+(incoming,),
                                 placements=snapshot.placements+(destination,))

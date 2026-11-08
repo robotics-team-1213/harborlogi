@@ -1,7 +1,7 @@
 from copy import deepcopy
 
 from django.template.loader import render_to_string
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from harbor_web import services
 from harbor_web.models import Audit, CargoFootprint, Observation, Plan
@@ -121,3 +121,9 @@ class InboundExplanationTests(TestCase):
         self.assertEqual(comparison['after_pins']['footprints'][0]['length_cells'], 2)
         self.assertEqual(comparison['changes'][0]['status'], 'route_changed')
         self.assertEqual(explain_plan(old)['routes'][0]['shape']['length_cells'], 1)
+
+class AreaLabelTests(SimpleTestCase):
+    def test_per_arm_temporary_areas_read_by_name(self):
+        from harbor_web.plan_explanation import _location
+        for area_id, label in (('temp_a', '임시 장치 A 2층'), ('temp_b', '임시 장치 B 2층'), ('stand', '반출대 2층')):
+            self.assertEqual(_location(dict(area_id=area_id, row=1, column=1, level=2))['label'], label)

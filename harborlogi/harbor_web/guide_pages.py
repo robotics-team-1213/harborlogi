@@ -93,6 +93,8 @@ def workflow(request):
 def integration(request):
     import os
     from harbor_web import fleet_connection as bridge
+    from harbor_web import readiness
+    from harbor_web.models import EvidenceProducerSetting
     from harbor_web.pipeline import connection_summary
     config = bridge.connection_settings()
     origins = bridge.allowed_origins()
@@ -101,7 +103,7 @@ def integration(request):
         action = request.POST.get('action')
         form = ConnectionForm(request.POST, origins=origins) if action == 'save' else form
         command = form if action == 'save' else ConnectionVersionForm(request.POST)
-        if action not in {'save', 'check'}:
+        if action not in {'save', 'check', 'producer'}:
             from django.http import HttpResponseBadRequest
             return HttpResponseBadRequest('Unknown connection action.')
         if command.is_valid():
@@ -109,6 +111,10 @@ def integration(request):
                 if action == 'save':
                     bridge.save_connection(request.user, **command.cleaned_data)
                     messages.success(request, 'Fleet 연결 설정을 저장했습니다.')
+                elif action == 'producer':
+                    bridge.set_human_confirmation(request.user, enabled=request.POST.get('enabled') == '1',
+                                                  expected_version=command.cleaned_data['expected_version'])
+                    messages.success(request, '사람 확인 생산자 설정을 저장했습니다.')
                 else:
                     bridge.check_connection(request.user, **command.cleaned_data)
                 return redirect('/settings/integration/')
@@ -121,6 +127,7 @@ def integration(request):
     return page(request, 'integration.html', section='settings', connection=connection_summary(),
         connection_config=config, connection_form=form, connection_check=check,
         check_message=CONNECTION_REASONS.get(check.detail['reason'], '') if check else '',
-        connection_guidance=guidance, origins_available=bool(origins), server_inputs=[
+        connection_guidance=guidance, readiness=readiness.table(check),
+        producer_setting=EvidenceProducerSetting.objects.first(), origins_available=bool(origins), server_inputs=[
             dict(label=label, present=bool(os.environ.get('HARBOR_' + key)), variable='HARBOR_' + key)
             for label, key in [('Fleet 서비스 토큰', 'FLEET_TOKEN'), ('업무 실행 장부', 'LEDGER_PATH'), ('설치된 이동 대응', 'BINDINGS_PATH')]])

@@ -1,0 +1,23 @@
+{% extends 'base.html' %}{% block title %}{{ title }}{% endblock %}{% block content %}
+<div class="page-head"><div><h1>{{ title }}</h1><p>{{ description }}</p></div></div>
+<div class="request-layout">
+<form class="form-panel" method="post">{% csrf_token %}{{ form.non_field_errors }}
+  <div>{{ form.cargo.as_field_group }}</div>
+  <div>{{ form.kind.as_field_group }}</div>
+  <div>{{ form.title.as_field_group }}</div>
+  <fieldset class="order-placement"><legend>처리 순서</legend>
+    <div class="tier-choice">{{ form.priority_group.as_field_group }}</div>
+    <div class="check-field" data-outbound-only>{{ form.make_first.as_field_group }}</div>
+    <div class="check-field">{{ form.tie_policy.as_field_group }}</div>
+    {{ form.sequence }}
+  </fieldset>
+  <div>{{ form.note.as_field_group }}</div>
+  <div class="actions"><button type="submit">저장</button><a class="button quiet" href="/requests/">목록으로 돌아가기</a></div>
+</form>
+<aside class="queue-preview" aria-labelledby="queue-preview-title">
+  <h2 id="queue-preview-title">현재 반출 대기열</h2>
+  <p class="helptext">긴급 → 우선 → 일반 순서로 처리합니다. 새 요청은 고른 단계의 맨 뒤에 들어가고, ‘이 단계 맨 앞에 등록’을 고르면 그 단계 맨 앞에 들어갑니다.</p>
+  {% include 'queue_lanes.html' with editable=False %}
+  <a class="button quiet" href="/outbound/#queue-editor">반출 관제에서 순서 바꾸기</a>
+</aside>
+</div>{% endblock %}

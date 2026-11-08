@@ -96,7 +96,7 @@ def evidence_provider(now):
         placement = PlacementEvidence(f'{tag}-p', mission, attempt, payload['revision'],
                                       PLACEMENT_SOURCE, now, cargo, location)
         retreat = RetreatEvidence(f'{tag}-r', mission, attempt, payload['revision'],
-                                  RETREAT_SOURCE, now, tuple(ArmRetreat(arm, f'zone-{arm}', True, (0.0, 0.0),
+                                  RETREAT_SOURCE, now, tuple(ArmRetreat(arm, f'zone-{arm}', True,
                                   now, payload['revision'], True) for arm in arms))
         return MoveEvidence(placement, retreat)
     return build

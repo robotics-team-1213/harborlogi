@@ -52,7 +52,7 @@ def main():
     original = services.register_condition(admin, name='Synthetic original map', calibration_ref='synthetic-only', payload=policy)
     observed = services.record_observation(admin, source_id='map-synthetic', source_revision='one',
         observed_at=timezone.now(), provenance='SYNTHETIC', condition=original,
-        payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp', 'stand'], holdings=[],
+        payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp_a', 'temp_b', 'stand'], holdings=[],
             placements=[dict(cargo_id=cargo.code, area_id='yard', row=1, column=1, level=1,
                 orientation=0, footprint_revision=CargoFootprint.objects.get(cargo=cargo).pk)]))
     original_payload, observation_payload = deepcopy(original.payload), deepcopy(observed.payload)
@@ -110,7 +110,7 @@ def main():
                 with page.expect_response(lambda response: response.url.endswith('/validate/') and response.request.method == 'POST') as response:
                     page.locator('[data-map-validate]').click()
                 assert response.value.status == (200 if ok else 400), response.value.text()
-                page.wait_for_function('document.querySelector("[data-map-editor]").getAttribute("aria-busy") === "false"')
+                page.wait_for_function('() => document.querySelector("[data-map-editor]").getAttribute("aria-busy") === "false"')
                 assert save.is_enabled() == ok
 
             apply(columns=4)

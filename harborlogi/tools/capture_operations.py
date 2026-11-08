@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright
 
 def main():
     access=json.loads((ROOT/'runs/product-preview/access.json').read_text(encoding='utf-8'))
-    output=ROOT/'runs/operations-evidence-2026-10-26'
+    output=ROOT/f'runs/operations-evidence-{datetime.now(timezone.utc):%Y-%m-%d}'
     output.mkdir(exist_ok=True)
     origin='http://127.0.0.1:8060'
     db=sqlite3.connect((ROOT/'runs/product-preview/product.sqlite3').resolve().as_uri()+'?mode=ro',uri=True)
@@ -45,9 +45,9 @@ def main():
         assert page.locator('.cargo-route').count()>=2
         capture('02-cargo-separation-routes.png','화물별 분리·임시 이동·목표 반출·재적재 경로','.plan-explanation')
         capture('03-plan-before-after.png','이전 Plan과 현재 Plan의 화물별 경로 비교','.plan-comparison')
-        page.locator('[data-plan-cargo="C2"]').click()
-        assert page.locator('[data-scene-cargo]').input_value()=='C2'
-        capture('04-selected-rehandle-cargo.png','분리할 화물 C2를 경로 설명에서3D로 선택','[data-yard-3d]')
+        page.locator('[data-plan-sequence]').click()
+        assert page.locator('[data-scene-play]').get_attribute('aria-pressed')=='true'
+        capture('04-plan-sequence-playback.png','배치에서 전체 순서 보기: 관측 배치부터 계획 순서를 차례로 재생','[data-yard-3d]')
         state=page.context.storage_state()
         video_context=browser.new_context(viewport=dict(width=1280,height=900),storage_state=state,
             record_video_dir=str(output/'video'),record_video_size=dict(width=1280,height=900))
@@ -67,8 +67,8 @@ def main():
         shutil.copyfile(video.path(),output/'slow-plan-playback.webm')
         page.locator('[data-yard-stage="3"]').click()
         page.wait_for_function('() => document.querySelector("[data-yard-3d] canvas").dataset.moving==="false"')
-        page.locator('[data-yard-view=flat]').click()
-        capture('06-restacking-plane.png','복귀·재적재가 끝난 계획상 예상 배치의 평면도','[data-yard-flat]')
+        # At 1200px and wider the floor plan sits beside the 3D view, so there is no view switch to press.
+        capture('06-restacking-plane.png','복귀·재적재가 끝난 계획상 예상 배치의 평면도','[data-yard-linked-flat]')
         for width,height in [(768,1024),(390,844)]:
             page.set_viewport_size(dict(width=width,height=height));page.goto(origin+'/')
             capture(f'07-overview-{width}.png',f'{width}px 운영 요약: 단위·미관측·실적 미집계 유지')

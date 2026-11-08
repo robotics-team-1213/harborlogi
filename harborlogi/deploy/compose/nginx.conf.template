@@ -1,0 +1,14 @@
+# Same rules as ../web/nginx.conf.example; ${HARBOR_HOSTNAME} is filled by the nginx image at start.
+server {
+    listen ${HARBOR_LISTEN_PORT} ssl;  # 443 in the bridge default; the host-network override sets the published port
+    server_name ${HARBOR_HOSTNAME};
+    ssl_certificate /etc/harbor-tls/fullchain.pem;
+    ssl_certificate_key /etc/harbor-tls/private-key.pem;
+    location / {
+        proxy_set_header Host ${HARBOR_HOSTNAME}:${HARBOR_HTTPS_PORT};  # browsers send Origin with the port; CSRF compares it to Host
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For "";
+        proxy_set_header Forwarded "";
+        proxy_pass http://127.0.0.1:8060;
+    }
+}

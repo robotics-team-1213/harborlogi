@@ -107,7 +107,7 @@ export async function mountYardViewer(figure) {
   const selection = () => selectionFor(boxes().find(b => b.id === selected)) || location;
   const mode = () => scene.kind === 'map-definition' ? 'map-definition' : draft ? 'local-draft' : index ? 'predicted' : 'original';
   function syncLinked() {
-    linked?.update(boxes(), mode(), selection());
+    linked?.update(boxes(), mode(), selection(), scene.frames[index].label);
     renderer.selectLocation(location);
     preview.dispatchEvent(new CustomEvent('yardselectionchange', {detail:{selection:selection(), source:mode(), index}}));
   }
@@ -115,7 +115,7 @@ export async function mountYardViewer(figure) {
     const box = boxes().find(b => b.id === selected);
     const base = scene.frames[index].boxes.find(b => b.id === selected);
     cargo.value = box ? box.id : '';
-    info.textContent = box ? box.id + ' · ' + box.label + ' · ' + box.size + ' · ' + box.orientation + '도 · ' +
+    info.textContent = box ? box.id + ' · ' + box.label + (!draft && scene.rehandle?.includes(box.id) ? ' (재취급 예정 · 계획 기준)' : '') + ' · ' + box.size + ' · ' + box.orientation + '도 · ' +
       (draft ? '가상: ' + box.area + ' / ' + box.row + '행 ' + box.column + '열 ' + box.level + '층 · 기준: ' + base.positions.join(' / ') : box.positions.join(' / '))
       : location ? `${scene.kind === 'map-definition' ? '미관측 위치 · 점유 확인 안 됨' : '빈 위치'} · ${location.area} · ${location.row}행 ${location.column}열 ${location.level}층 · 화물 아님`
         : '박스나 화물 목록을 선택해 크기·위치를 확인하세요.';

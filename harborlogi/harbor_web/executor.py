@@ -95,18 +95,35 @@ def tick(*, evidence=None, now=None, registry=None):
             _record(command.pk, True, interval)
     if not active:
         _rearrange_when_idle(now)
+    try:
+        from harbor_web import intake_loop
+        intake_loop.tick(registry, now=now)
+    except Exception:
+        pass  # R not reachable or not yet serving port events; the next tick retries.
     return dict(ran=True, reason='', results=results)
 
 
 def _loop_evidence():
-    """The production provider (P2): intake-backed when the deployment opts in."""
-    if os.environ.get('HARBOR_EXECUTOR_EVIDENCE') != 'intake':
-        return None
+    """The production provider (P2): intake-backed when opted in, plus the named-person source (ADR 0023)."""
+    providers = []
     try:
-        from harbor_web.evidence import intake_provider
-        return intake_provider()
+        if os.environ.get('HARBOR_EXECUTOR_EVIDENCE') == 'intake':
+            from harbor_web.evidence import intake_provider
+            providers.append(intake_provider())
+        from harbor_web.human_evidence import human_provider
+        providers.append(human_provider())  # Gated per call by the admin switch.
     except Exception:
+        pass
+    if not providers:
         return None
+
+    def evidence(*args):
+        for provider in providers:
+            found = provider(*args)
+            if found is not None:
+                return found
+        return None
+    return evidence
 
 
 def _run(interval):

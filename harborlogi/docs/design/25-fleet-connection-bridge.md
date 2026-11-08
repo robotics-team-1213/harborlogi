@@ -14,7 +14,7 @@
 |---|---|
 | `HARBOR_FLEET_ALLOWED_ORIGINS` | 서버가 정한 UI 선택 가능 주소, 쉼표 구분. HTTPS 또는 기존 client가 허용한 loopback HTTP. 화면에서 임의 주소를 추가하지 않음 |
 | `HARBOR_FLEET_ORIGIN`·`HARBOR_FLEET_PRINCIPAL` | 기존 배포 관리 방식. origin을 설정하면 이 방식이 UI 프로필보다 우선하고 화면에서 연결 신원을 바꾸지 않음 |
-| FleetConnection | 서버 origin이 없는 경우 Harbor DB에 주소·서비스 신원·ARM 화면 설치 선언·version 저장. 서비스 토큰 없음 |
+| FleetConnection | origin은 ROSY 계층 꼭대기 관제 하나다(ADR0018). 서버 origin이 없는 경우 Harbor DB에 주소·서비스 신원·ARM 화면 설치 선언·version 저장. 서비스 토큰 없음 |
 | `HARBOR_FLEET_TOKEN` | 서버에 설치한 서비스 자격. UI 입력·응답·공개 문서에 실제 값을 넣지 않음 |
 | `HARBOR_LEDGER_PATH`·`HARBOR_BINDINGS_PATH` | 기존 업무 장부와 검토된 물리 참조 대응. 경로는 서버에서 관리하고 화면에는 설정 유무만 표시 |
 | ARM 화면 설치 선언 | 해당 Fleet 콘솔의 설치 확인. API 지원·승인 성공의 근거로 사용하지 않음 |
@@ -24,6 +24,10 @@
 같은 resolver가 실행 요청 제출·원래 실행 대조·Fleet 콘솔 링크에 사용된다. UI 프로필을 저장해도 토큰이 없으면 전송하지 않는다. 설정 save는 버전을 검사하고 감사하며, 토큰이나 설정이 바뀌면 이전 검사 성공을 재사용하지 않는다. 기존 Command가 있으면 origin/principal 변경을 거절해 원래 실행 identity를 보존한다. 이력 삭제나 새 identity로의 자동 이관은 제공하지 않는다.
 
 업무 실행 장부의 writer와 웹 DB writer는 기존 단일 프로세스/WriterLease 제약을 따른다. 설정 변경은 제출과 같은 직렬화 경계를 사용한다. 이미 생성된 Command의 원본 key·body·Fleet origin/principal을 새 설정으로 덮어쓰지 않는다. 백업은 해당 웹 DB의 프로필 신원도 manifest에 보존하고 토큰은 포함하지 않는다. 복원 후 실행 대조 차단은 유지한다.
+
+## 운영 실행 조건 점검표 (ADR0022)
+
+‘Fleet 연결 확인’은 세션·ARM 조회에 더해 근거·재확인 경로, 이송 제안 경로, 플랫폼 운영 프로필 신호를 없는 키 GET으로 탐침하고 조건별 결과를 점검 기록에 저장한다. 연결 설정 화면은 조건마다 충족/미충족/미확인, 점검 시각, 소유, 다음 조치를 표로 보인다. 운영 실행은 점검이 10분 안이고 모든 관문 조건이 참일 때만 열린다. 이송 제안 경로는 표시 전용이다. 사람 확인 근거 생산자는 같은 화면에서 관리자가 켜며 변경은 감사 기록에 남는다. 시뮬레이션 실행은 기존 네 조건 그대로다.
 
 ## 실제로 검사하는 계약
 
