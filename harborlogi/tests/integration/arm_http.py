@@ -37,11 +37,11 @@ class ArmHttpTests(unittest.TestCase):
             ledger.prepare("neutral-arm-http", 1, (binding,), outbound_id=binding.cargo_id,
                            outbound_stand=binding.destination, move_arms=(("A", "B"),))
             mission = ledger.propose("neutral-arm-http", client)
-            deadline = time.monotonic() + 30
+            deadline = time.monotonic() + config.get("goal_timeout_s", 30)  # a MuJoCo transfer runs in sim time
             while True:
                 ledger.refresh("neutral-arm-http", client, now=datetime.now(timezone.utc))
                 row = ledger.read("neutral-arm-http")
-                self.assertNotEqual(row["state"], "HOLD")
+                self.assertNotEqual(row["state"], "HOLD", row)
                 if row["goal_confirmed"]:
                     break
                 if time.monotonic() >= deadline:
@@ -60,6 +60,15 @@ class ArmHttpTests(unittest.TestCase):
                 receipt = json.load(response)["receipt"]
             self.assertEqual(receipt["physical_status"], "AT_TARGET_AND_CLEAR")
             self.assertEqual(receipt["attempt_id"], row["attempt_id"])
+            # The calls behind business completion, through whichever Fleet is the origin (R relays them, D-965).
+            evidence = client.physical_evidence(mission)
+            self.assertEqual(evidence["receipt"], receipt)
+            self.assertTrue(evidence["evidence_document"])
+            recheck = client.request_recheck(mission, "neutral-arm-http-recheck")["recheck"]
+            self.assertEqual((recheck["mission_id"], recheck["attempt_id"]), (mission, row["attempt_id"]))
+            self.assertIn(recheck["status"], ("WAITING_OBSERVATIONS", "CONFIRMED"))
+            self.assertEqual(client.recheck_read(mission, "neutral-arm-http-recheck")["recheck"]["recheck_key"],
+                             "neutral-arm-http-recheck")
             # Browser-facing HTTP projection reads the same real Fleet contract,
             # without recovering/refreshing the Harbor ledger or receiving approver credentials.
             web = Application(Workbench(ReadOnlyLedger(ledger.path), client))

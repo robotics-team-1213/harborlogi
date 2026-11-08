@@ -15,13 +15,35 @@ export function atPosition(boxes, position) {
     position.column >= box.column && position.column < box.column + box.width);
 }
 
+export const OCCUPANCY_CAP = 3; // Same cap as yard_occupancy.STEP_CAP: step 3 means three or more levels.
+
+/** Per-column stack height of one area: the highest level of any cargo covering the column (multi-cell cargo = one box). */
+export function columnHeights(boxes, areaId) {
+  const heights = new Map();
+  for (const box of boxes) {
+    if (box.area !== areaId) continue;
+    for (let row = box.row; row < box.row + box.depth; row++)
+      for (let column = box.column; column < box.column + box.width; column++)
+        heights.set(`${row},${column}`, Math.max(heights.get(`${row},${column}`) || 0, box.level));
+  }
+  return heights;
+}
+
+export function occupancyFor(heights, row, column, depth = 1, width = 1) {
+  let height = 0;
+  for (let r = row; r < row + depth; r++)
+    for (let c = column; c < column + width; c++) height = Math.max(height, heights.get(`${r},${c}`) || 0);
+  return {height, step: Math.min(height, OCCUPANCY_CAP)};
+}
+
 export function mountLinkedGrid(preview, scene, onSelect, inspectDestination = () => null) {
+  const rehandle = new Set(scene.rehandle || []);  // Stored plan moves; absent on pages without a plan.
   const original = preview.querySelector('[data-yard-flat]');
   const grid = document.createElement('div');
   grid.dataset.yardLinkedFlat = ''; grid.className = 'linked-flat';
   original.after(grid);
   const levels = new Map(scene.areas.map(area => [area.id, 1]));
-  let selected = null, boxes = [], mode = '';
+  let selected = null, boxes = [], mode = '', stageLabel = '';
   const address = (area, row, column, level) => area.addresses?.[`${row},${column},${level}`] ||
     `${area.id} · ${row}행 ${column}열 ${level}층`;
   function render() {
@@ -31,6 +53,25 @@ export function mountLinkedGrid(preview, scene, onSelect, inspectDestination = (
       mode === 'local-draft' ? '로컬 가상 배치 · 최종 배치 · 서버에 저장되지 않음' :
       mode === 'original' ? '원본 관측 · 층별 평면' : '계획 후 예상 · 층별 평면';
     grid.append(heading); grid.dataset.source = mode;
+    const showOccupancy = mode !== 'map-definition';  // Nothing is observed there, so no height is claimed.
+    if (showOccupancy) {
+      const legend = document.createElement('ul'); legend.className = 'occupancy-legend'; legend.dataset.linkedOccupancyLegend = '';
+      legend.setAttribute('aria-label', '점유 높이와 재취급 예정 범례');
+      for (const [step, text] of [[0,'빈 칸'],[1,'1층'],[2,'2층'],[3,'3층 이상']]) {
+        const item = document.createElement('li'), swatch = document.createElement('i');
+        swatch.className = 'occ-swatch'; swatch.dataset.step = step; swatch.textContent = step; swatch.setAttribute('aria-hidden','true');
+        item.append(swatch, text); legend.append(item);
+      }
+      if (rehandle.size) {
+        const item = document.createElement('li'), swatch = document.createElement('i');
+        swatch.className = 'occ-swatch'; swatch.dataset.rehandle = ''; swatch.textContent = '재'; swatch.setAttribute('aria-hidden','true');
+        item.append(swatch, '재취급 예정 화물'); legend.append(item);
+      }
+      const basis = document.createElement('p'); basis.className = 'helptext'; basis.dataset.linkedOccupancyBasis = '';
+      const kind = mode === 'local-draft' ? '가상 배치 · 실적 아님' : /예상/.test(stageLabel || '') ? '예상 · 실적 아님' : '관측값';
+      basis.textContent = `쌓인 높이: ${mode === 'local-draft' ? '로컬 가상 배치' : stageLabel || '관측'} 기준 칸별 층 수 · ${kind} · 재취급 예정은 저장된 계획 기준`;
+      grid.append(legend, basis);
+    }
     if (mode === 'local-draft') {
       const bar = document.createElement('div'); bar.className = 'linked-edit-bar';
       const label = document.createElement('label'); label.textContent = '이동할 화물';
@@ -61,6 +102,7 @@ export function mountLinkedGrid(preview, scene, onSelect, inspectDestination = (
           grid.querySelector(`[data-grid-area="${CSS.escape(area.id)}"] [data-linked-level="${level}"]`).focus(); });
         controls.append(button);
       }
+      const heights = showOccupancy ? columnHeights(boxes, area.id) : null;
       const table = document.createElement('table'); table.className = 'yard-plane';
       const caption = table.createCaption(); caption.textContent = `${levels.get(area.id)}층 · 1행 위쪽 / 1열 왼쪽`;
       const head = table.createTHead().insertRow(); head.append(document.createElement('th'));
@@ -93,6 +135,17 @@ export function mountLinkedGrid(preview, scene, onSelect, inspectDestination = (
           const coordinates = document.createElement('span');
           coordinates.textContent = identity.coveredPositions.map(p => address(area, p.row, p.column, p.level)).join(' / ');
           button.append(label, coordinates);
+          if (heights) {
+            const {height, step} = occupancyFor(heights, row, column, box?.depth, box?.width);
+            const planned = box && mode !== 'local-draft' && rehandle.has(box.id);
+            const chip = document.createElement('span'); chip.className = 'linked-occupancy'; chip.dataset.linkedOccupancy = '';
+            chip.dataset.step = step; chip.dataset.height = height;
+            const spoken = document.createElement('span'); spoken.className = 'sr-only'; spoken.textContent = '쌓인 높이 ';
+            chip.append(spoken, `${height}층${planned ? ' · 재취급 예정' : ''}`);  // the legend names it on screen
+            td.dataset.step = step; td.dataset.height = height;
+            if (planned) { button.dataset.rehandle = box.id; td.dataset.rehandle = box.id; }
+            button.append(chip);
+          }
           button.addEventListener('click', () => {
             onSelect(identity);
             const target = [...grid.querySelectorAll('[data-selection]')].find(node => {
@@ -111,8 +164,8 @@ export function mountLinkedGrid(preview, scene, onSelect, inspectDestination = (
   return {
     grid,
     feedback(text) { const node = grid.querySelector('[data-linked-feedback]'); if (node) node.textContent = text; },
-    update(values, nextMode, value) {
-      boxes = values; mode = nextMode; selected = value; original.hidden = true;
+    update(values, nextMode, value, label = '') {
+      boxes = values; mode = nextMode; selected = value; stageLabel = label; original.hidden = true;
       if (value) levels.set(value.area, value.level);
       preview.dataset.selection = JSON.stringify(value); render();
     },

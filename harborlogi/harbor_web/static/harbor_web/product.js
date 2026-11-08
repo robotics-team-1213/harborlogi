@@ -162,3 +162,152 @@ document.querySelectorAll('[data-yard-preview]').forEach(preview => {
   });
   new Set(controls.map(areaOf)).forEach(area => selectLevel('1', area));
 });
+
+// One button plays the whole stored sequence in the yard view (KAN-115).
+document.querySelectorAll('[data-plan-sequence]').forEach(button => {
+  const preview = document.querySelector('[data-yard-preview]');
+  if (!preview || !preview.querySelector('[data-yard-stage]')) return;
+  button.hidden = false;
+  button.addEventListener('click', () => {
+    const figure = preview.querySelector('[data-yard-3d][data-ready="true"]');
+    if (figure?.hidden) preview.querySelector('[data-yard-view="3d"]')?.click();
+    const play = figure?.querySelector('[data-scene-play]');
+    if (play?.getAttribute('aria-pressed') === 'true') play.click();
+    preview.dispatchEvent(new CustomEvent('yardstagejump', {detail:{index:0, animate:false}}));
+    (figure || preview).scrollIntoView({block:'start'});
+    if (play && !play.hidden && !play.disabled) { play.click(); play.focus({preventScroll:true}); }
+    else preview.querySelector('[data-yard-stage="1"]')?.focus({preventScroll:true});
+  });
+});
+
+// Back button for pages reached by a link inside the app.
+document.querySelectorAll('[data-history-back]').forEach(button => {
+  let internal = false;
+  try {
+    const from = new URL(document.referrer);
+    internal = history.length > 1 && from.origin === location.origin && from.href !== location.href && !from.pathname.startsWith('/accounts/');
+  } catch (_) {}
+  if (!internal) return;
+  button.hidden = false;
+  button.addEventListener('click', () => history.back());
+});
+
+// Choosing another observation reloads at once; the submit button stays for keyboard and no-script use.
+document.querySelectorAll('[data-auto-submit]').forEach(select => select.addEventListener('change', () => select.form.requestSubmit()));
+
+// Outbound queue: three fixed tiers (긴급 · 우선 · 일반). Drag cards between tiers, or use ▲▼ and 맨 앞으로;
+// the lane fields are rebuilt on submit. Tiers never appear or disappear, so an empty tier stays a drop target.
+document.querySelectorAll('[data-queue-editor]').forEach(editor => {
+  const box = editor.querySelector('[data-queue-lanes]');
+  const form = editor.querySelector('form[data-queue-form]');
+  const status = editor.querySelector('[data-queue-status]');
+  if (!box || !form || !box.querySelector('[data-queue-move]')) return;
+  editor.querySelectorAll('[data-queue-tools]').forEach(element => { element.hidden = false; });
+  const lanes = () => [...box.querySelectorAll('[data-queue-lane]')];
+  const initial = JSON.stringify(serialize());
+  function serialize() {
+    return lanes().map(lane => `${lane.querySelector('[data-lane-fixed]').checked ? 'FIXED' : 'ANY'}|` +
+      [...lane.querySelectorAll('[data-order]')].map(card => `${card.dataset.order}:${card.dataset.version}`).join(','));
+  }
+  function refresh(message) {
+    const changed = JSON.stringify(serialize()) !== initial;
+    if (status) status.textContent = [message, changed ? '아직 저장하지 않았습니다.' : ''].filter(Boolean).join(' · ');
+  }
+  function move(card, direction) {
+    const lane = card.closest('[data-queue-lane]'), list = lane.querySelector('ol');
+    const all = lanes(), index = all.indexOf(lane);
+    if (direction === 'first') {
+      all[0].querySelector('ol').prepend(card);
+      return refresh(`${card.dataset.label}을(를) 긴급 맨 앞으로 옮겼습니다.`);
+    }
+    if (direction === 'up') {
+      if (card.previousElementSibling) list.insertBefore(card, card.previousElementSibling);
+      else if (index > 0) all[index - 1].querySelector('ol').append(card);
+      else return;
+    } else {
+      if (card.nextElementSibling) list.insertBefore(card.nextElementSibling, card);
+      else if (index < all.length - 1) all[index + 1].querySelector('ol').prepend(card);
+      else return;
+    }
+    refresh(`${card.dataset.label} 위치를 바꿨습니다.`);
+  }
+  box.addEventListener('click', event => {
+    const button = event.target.closest('[data-queue-move]');
+    if (!button) return;
+    const card = button.closest('[data-order]');
+    move(card, button.dataset.queueMove);
+    card.querySelector(`[data-queue-move="${button.dataset.queueMove}"]`)?.focus();
+  });
+  box.addEventListener('change', event => { if (event.target.matches('[data-lane-fixed]')) refresh(); });
+  // Pointer events instead of HTML drag-and-drop: one path for mouse and touch (touch drags by the handle).
+  let dragged = null;
+  box.addEventListener('pointerdown', event => {
+    const card = event.target.closest('[data-order]');
+    if (!card || event.button !== 0 || event.target.closest('button, input, label')) return;
+    if (event.pointerType !== 'mouse' && !event.target.closest('.queue-handle')) return;
+    dragged = card; card.classList.add('dragging'); card.setPointerCapture(event.pointerId); event.preventDefault();
+  });
+  box.addEventListener('pointermove', event => {
+    if (!dragged) return;
+    const under = document.elementsFromPoint(event.clientX, event.clientY);
+    const list = under.map(element => element.closest('[data-queue-lane]')).find(Boolean)?.querySelector('ol');
+    if (!list) return;
+    const after = [...list.querySelectorAll('[data-order]:not(.dragging)')]
+      .find(card => event.clientY < card.getBoundingClientRect().top + card.offsetHeight / 2);
+    if (dragged.nextElementSibling !== after || dragged.parentElement !== list) list.insertBefore(dragged, after || null);
+  });
+  const drop = () => {
+    if (!dragged) return;
+    const card = dragged; dragged = null; card.classList.remove('dragging');
+    refresh(`${card.dataset.label} 위치를 바꿨습니다.`);
+  };
+  box.addEventListener('pointerup', drop);
+  box.addEventListener('pointercancel', drop);
+  form.addEventListener('submit', () => {
+    refresh();
+    form.querySelectorAll('input[name="lane"]').forEach(input => input.remove());
+    serialize().forEach(value => {
+      const input = document.createElement('input');
+      Object.assign(input, {type:'hidden', name:'lane', value});
+      form.append(input);
+    });
+  });
+  refresh();
+});
+
+// The first-place box only affects the outbound queue; keep it off inbound requests.
+document.querySelectorAll('[data-outbound-only]').forEach(box => {
+  const kind = box.closest('form')?.querySelector('[name=kind]');
+  if (!kind) return;
+  const sync = () => { box.hidden = kind.value !== 'OUTBOUND'; };
+  kind.addEventListener('change', sync);
+  sync();
+});
+
+// Control board: picking a job highlights the yard rows its moves touch and shows its timeline (KAN-115 시안).
+document.querySelectorAll('[data-job-table]').forEach(table => {
+  const board = table.closest('[data-control-board]') || document;
+  const rows = [...table.querySelectorAll('tr[data-job]')];
+  const select = row => {
+    rows.forEach(item => item.setAttribute('aria-selected', String(item === row)));
+    const keys = (row.dataset.rows || '').split(' ').filter(Boolean);
+    board.querySelectorAll('[data-yard-row]').forEach(element => element.classList.toggle('focus', keys.includes(element.dataset.yardRow)));
+    board.querySelectorAll('[data-job-timeline]').forEach(panel => { panel.hidden = panel.dataset.jobTimeline !== row.dataset.job; });
+  };
+  rows.forEach(row => row.addEventListener('click', event => {
+    if (event.target.closest('a')) return;
+    select(row);
+  }));
+  if (rows.length) select(rows.find(row => row.getAttribute('aria-selected') === 'true') || rows[0]);
+});
+
+// Links to a collapsed panel (the observation chip) open it instead of jumping to a closed box.
+const openTarget = hash => {
+  const target = hash && hash.length > 1 ? document.getElementById(decodeURIComponent(hash.slice(1))) : null;
+  if (target?.tagName === 'DETAILS') { target.open = true; target.querySelector('summary')?.focus(); }
+};
+document.addEventListener('click', event => {
+  const link = event.target.closest('a[href^="#"]');
+  if (link) openTarget(link.getAttribute('href'));
+});
+openTarget(location.hash);

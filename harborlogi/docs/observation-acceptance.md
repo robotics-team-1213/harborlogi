@@ -6,6 +6,8 @@
 
 Harbor는 실제 Fleet HTTP를 소비하지만, 물리 관측을 `MoveEvidence`(내려놓기 `PlacementEvidence` + 퇴피 `RetreatEvidence`, ADR 0005 결정 6)로 변환하는 운영 어댑터는 아직 없다. 이 문서는 그 어댑터의 입력·소유·수용 조건이며, 관측 wire schema나 장치 활성화 계약을 새로 정의하지 않는다.
 
+2026-11-04: 자동 생산자가 생길 때까지 기명 현장 운영자 확인을 별도 출처로 받는다([ADR 0023](adr/0023-human-attested-evidence.md)). 사람 확인은 측정값이 아니라 판정이며, 아래 자동 근거의 필드 대응(관절값·점유 해제)을 대신하지 않는다.
+
 ## 현재 생산자와 소비자의 차이
 
 조사 소스는 Harbor `2f365ea`(이전 비공개 저장소 `rosy-port`의 커밋), 플랫폼 `6b7dd876289ecb5ffe121eb983a90b36f15c9eba`다. 플랫폼 내부 경로는 근거이며 Harbor runtime import 대상이 아니다.

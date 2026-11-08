@@ -45,7 +45,7 @@ runs/web-venv/Scripts/python.exe -m harbor_web.manage createsuperuser
 
 로컬 합성 미리보기도 Waitress 프로세스는 소스 변경을 자동 재적재하지 않는다. 템플릿 캐시가 남아 새 CSS와 이전 HTML이 섞여 보일 수 있으므로 화면 변경 후에는 해당 미리보기 owner만 확인해 종료하고 다시 시작한 뒤 캡처한다. `tools/capture_operations.py`는 현재 운영 요약의 필수 항목이 실제 DOM에 있는지 확인하여 이전 템플릿의 캡처를 거절한다. 이 절차는 로컬 합성 preview용이며 실행 중 운영 작업을 임의로 종료하는 절차가 아니다.
 
-실행은 `python -m harbor_web --port 8060`이다. live에서 Waitress 한 프로세스만 실행하고, [nginx 예시](../deploy/web/nginx.conf.example)처럼 TLS proxy 뒤 loopback에 둔다. proxy 신뢰는 명시적 `HARBOR_WEB_TRUSTED_PROXY=1`일 때만 연다. 예시 인증서 경로와 호스트를 실제 설치값으로 교체하고 브라우저 인증/CSRF/TLS를 현장에서 검증해야 한다.
+실행은 `python -m harbor_web --port 8060`이다. live에서 Waitress 한 프로세스만 실행하고, [nginx 예시](../deploy/web/nginx.conf.example)처럼 TLS proxy 뒤 loopback에 둔다. proxy 신뢰는 명시적 `HARBOR_WEB_TRUSTED_PROXY=1`일 때만 연다. 예시 인증서 경로와 호스트를 실제 설치값으로 교체하고 브라우저 인증/CSRF/TLS를 현장에서 검증해야 한다. 운영 설치 위치(R과 같은 운영 PC)와 Compose 절차는 [ADR0021](adr/0021-harbor-runs-beside-integrated-control-r.md)과 [Compose 설치 안내](../deploy/compose/README.md)를 따른다.
 
 writer를 종료한 뒤 `python -m harbor_web.manage backup_product --output <새 절대 폴더>`로 짝 백업한다. 복원은 `restore_product --backup <백업 폴더> --web-database <새 절대 파일> --ledger-database <새 절대 파일>`을 사용한다. 기존 파일을 덮어쓰지 않으며 hash/환경/짝을 확인한다. 복원 뒤 새 제출은 차단된다. 원래 실행 key 대조와 운영 복구 검토 전 장부/상태를 지워 새 요청으로 재시도하지 않는다. 두 파일의 게시 전체는 OS 원자 연산이 아니므로 중단 시 불완전한 새 대상 세트가 있을 수 있고 보호된 복원 절차로 확인해야 한다.
 

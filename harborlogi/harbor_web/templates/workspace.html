@@ -3,11 +3,11 @@
 {% block content %}
 <nav class="breadcrumbs" aria-label="현재 위치"><a href="/outbound/">반출 관제</a><span aria-hidden="true">/</span><span>요청 #{{ order.pk }}{% if plan %} · 계획 #{{ plan.pk }}{% endif %}</span></nav>
 <div class="page-head workspace-heading">
-  <div><h1>{{ order.cargo.code }} 반출 업무</h1><p>{{ order.cargo.name }} · {{ order.cargo.destination }}</p></div>
+  <div><h1>{% if order.title %}{{ order.title }}{% else %}{{ order.cargo.code }} 반출 업무{% endif %}</h1><p>{% if order.title %}{{ order.cargo.code }} 반출 · {% endif %}{{ order.cargo.name }} · {{ order.cargo.destination }}</p></div>
   <div class="task-state"><span class="badge {% if command %}{{ command.state }}{% elif plan %}{{ plan.result.status }}{% endif %}">{% if command %}{{ command_label }}{% elif plan %}{% if plan_changes %}검토 당시{% else %}계획{% endif %} {{ plan.result.status }}{% else %}계획 전{% endif %}</span><span>업무 완료 {{ completion_state }}</span></div>
 </div>
-<dl class="task-meta"><div><dt>현재 지시</dt><dd>v{{ order.version }}</dd></div><div><dt>반출 순서</dt><dd>그룹 {{ order.priority_group }} · {{ order.sequence }}순위</dd></div><div><dt>동순위 규칙</dt><dd>{% if order.tie_policy == 'ANY' %}그룹 안 선택 허용{% else %}순서 고정{% endif %}</dd></div>{% if plan %}<div><dt>계획 기준 지시</dt><dd>v{{ plan.order_version }} · {{ plan.created_at|date:'m-d H:i' }}</dd></div>{% endif %}</dl>
-<nav class="tabs workspace-tabs" aria-label="업무 안에서 이동"><a href="#yard">야드·계획</a><a href="#execution">실행·근거</a><a href="#history">변경 이력</a></nav>
+<dl class="task-meta"><div><dt>현재 지시</dt><dd>v{{ order.version }}</dd></div><div><dt>반출 순서</dt><dd>{{ order.tier_label }} · {{ order.sequence }}번째</dd></div><div><dt>동순위 규칙</dt><dd>{% if order.tie_policy == 'ANY' %}단계 안 선택 허용{% else %}순서 고정{% endif %}</dd></div>{% if plan %}<div><dt>계획 기준 지시</dt><dd>v{{ plan.order_version }} · {{ plan.created_at|date:'m-d H:i' }}</dd></div>{% endif %}</dl>
+<nav class="tabs workspace-tabs" aria-label="업무 안에서 이동"><a href="#yard">야드·계획</a><a href="#execution">실행·근거</a><a href="#history">변경 이력</a><a href="/requests/{{ order.pk }}/timeline/">업무 타임라인</a></nav>
 {% if different_execution_plan %}<div class="notice"><strong>원래 실행은 계획 #{{ command.plan_id }}에 연결돼 있습니다.</strong><p>지금 보는 계획 #{{ plan.pk }}와 구별해 대조하세요. <a href="/requests/{{ order.pk }}/">원래 실행 기준으로 돌아가기</a></p></div>{% endif %}
 {% if plan_explanation %}<div class="workspace-explanation">{% include 'plan_explanation.html' with explanation=plan_explanation %}</div>{% endif %}
 <div class="workspace-layout">
@@ -17,6 +17,7 @@
     {% if source %}
     <div class="source-line"><span>{% if plan %}계획 기준 관측{% else %}검토할 관측{% endif %} · {{ source.observed_at|date:'Y-m-d H:i:s' }}</span><a href="/inventory/?observation={{ source.pk }}">원본 확인</a></div>
     <div class="yard-legend" aria-label="화물 구분"><span><i class="legend-target" aria-hidden="true"></i>반출 대상</span><span><i class="legend-blocker" aria-hidden="true"></i>재취급 대상</span><span>논리 배치 · 실측 좌표 아님</span></div>
+    {% include 'yard_occupancy.html' %}
     {% if display_moves %}<div class="preview-controls" aria-label="계획 예상 단계 선택">{% for stage in yard_stages %}<button type="button" class="quiet" data-yard-stage="{{ stage.index }}" aria-controls="{{ stage.panel_id }}" aria-pressed="{% if forloop.first %}true{% else %}false{% endif %}" hidden>{% if forloop.first %}관측{% else %}{{ stage.index }} · {{ stage.phase }}{% endif %}</button>{% endfor %}</div>{% endif %}
     <p class="preview-status helptext" data-yard-status role="status">관측한 배치{% if display_moves %} · 단계를 선택하면 계획상 예상 위치만 바뀝니다.{% endif %}</p>
     {% include 'yard_3d.html' %}<div data-yard-flat>{% for stage in yard_stages %}{% include 'yard_stage.html' %}{% endfor %}</div>

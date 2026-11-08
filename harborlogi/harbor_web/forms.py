@@ -7,7 +7,7 @@ from harbor_web.models import Cargo, Condition, Measurement, Observation, Order
 
 class FootprintForm(forms.Form):
     length_cells = forms.TypedChoiceField(label='점유 크기', coerce=int,
-        choices=[(n, f'{n} × 1칸') for n in (1, 2, 3)], initial=1)
+        choices=[(n, f'{n} × 1칸') for n in (1, 2, 3)], initial=3)  # site containers are 1×3 (KAN-115)
 
 
 class CargoForm(forms.ModelForm):
@@ -25,26 +25,72 @@ class CargoForm(forms.ModelForm):
         help_texts = dict(code='등록 뒤에도 원래 ID를 유지합니다. 실제 위치는 관측으로 확인합니다.')
 
 
+class FixedOrderCheckbox(forms.CheckboxInput):
+    """Tie policy as one box: checked (the default) keeps FIXED, unchecked sends ANY.
+
+    Explicit FIXED/ANY values from older forms and scripts are still read as given.
+    """
+    def __init__(self, attrs=None):
+        super().__init__(attrs, check_test=lambda value: value in (None, '', 'FIXED'))
+
+    def format_value(self, value):
+        return 'FIXED'
+
+    def value_from_datadict(self, data, files, name):
+        value = data.get(name)
+        if value in ('FIXED', 'ANY'):
+            return value
+        return 'FIXED' if value else 'ANY'
+
+
+TIE_POLICY_LABEL = '단계 안 순서 고정'
+TIE_POLICY_HELP = '기본은 고정입니다. 해제하면 같은 단계의 요청을 순서와 관계없이 처리할 수 있습니다.'
+TIER_CHOICES = [(1, '긴급'), (2, '우선'), (3, '일반')]  # priority_group 1·2·3 (KAN-116)
+TIER_HELP = '긴급 → 우선 → 일반 순서로 처리합니다. 같은 단계 안의 순서는 반출 관제에서 추천 시나리오로 정합니다.'
+
+
 class OrderForm(forms.ModelForm):
+    priority_group = forms.TypedChoiceField(label='우선순위 단계', coerce=int, choices=TIER_CHOICES, initial=3,
+                                            widget=forms.RadioSelect, help_text=TIER_HELP)
+    # Left empty, the order goes last in its tier; scripts may still send an explicit sequence.
+    sequence = forms.IntegerField(required=False, min_value=1, widget=forms.HiddenInput)
+    make_first = forms.BooleanField(label='이 단계 맨 앞에 등록', required=False,
+        help_text='반출 요청만 해당합니다. 같은 단계의 기존 요청은 한 칸씩 뒤로 갑니다.')
+
     class Meta:
         model = Order
-        fields = ['cargo', 'kind', 'priority_group', 'sequence', 'tie_policy', 'note']
-        labels = dict(cargo='화물', kind='요청 종류', priority_group='우선순위 그룹', sequence='그룹 안 순서', tie_policy='동순위 처리', note='요청 메모')
-        widgets = {'note': forms.Textarea(attrs={'rows': 3})}
-        help_texts = dict(priority_group='작은 그룹부터 검토합니다.', sequence='순서 고정 그룹에서 작은 값부터 처리합니다.')
+        fields = ['cargo', 'kind', 'title', 'priority_group', 'sequence', 'tie_policy', 'note']
+        labels = dict(cargo='화물', kind='요청 종류', title='요청 제목', tie_policy=TIE_POLICY_LABEL, note='요청 메모')
+        widgets = {'note': forms.Textarea(attrs={'rows': 3}), 'tie_policy': FixedOrderCheckbox(),
+                   'title': forms.TextInput(attrs={'placeholder': '예: 본선 1차 선적분'})}
+        help_texts = dict(title='목록에서 화물 ID 대신 먼저 보이는 이름입니다. 비우면 화물 이름을 씁니다.',
+                          tie_policy=TIE_POLICY_HELP)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['kind'].choices = [('INBOUND', '입고'), ('OUTBOUND', '반출')]
-        self.fields['tie_policy'].choices = [('FIXED', '순서 고정'), ('ANY', '같은 그룹 안에서 선택 허용')]
+        self.fields['tie_policy'].choices = [('FIXED', '순서 고정'), ('ANY', '같은 단계 안에서 선택 허용')]
+
+    def clean(self):
+        data = super().clean()
+        # The DB check constraint is the backstop; this gives the user a plain field error first.
+        if data.get('kind') in ('INBOUND', 'OUTBOUND') and not data.get('cargo') and 'cargo' not in self.errors:
+            self.add_error('cargo', '입고·반출 요청은 화물을 선택해야 합니다.')
+        return data
 
 
 class PriorityForm(forms.Form):
     expected_version = forms.IntegerField(widget=forms.HiddenInput)
-    priority_group = forms.IntegerField(label='우선순위 그룹', min_value=1)
-    sequence = forms.IntegerField(label='그룹 안 순서', min_value=1)
-    tie_policy = forms.ChoiceField(label='동순위 처리', choices=[('FIXED', '순서 고정'), ('ANY', '그룹 안 선택 허용')])
+    title = forms.CharField(label='요청 제목', max_length=80, required=False)
+    priority_group = forms.TypedChoiceField(label='우선순위 단계', coerce=int, choices=TIER_CHOICES, widget=forms.RadioSelect)
+    sequence = forms.IntegerField(required=False, min_value=1, widget=forms.HiddenInput)
+    tie_policy = forms.ChoiceField(label=TIE_POLICY_LABEL, choices=[('FIXED', '순서 고정'), ('ANY', '단계 안 선택 허용')],
+                                   widget=FixedOrderCheckbox(), help_text=TIE_POLICY_HELP)
     note = forms.CharField(label='변경 메모', max_length=500, required=False, widget=forms.Textarea(attrs={'rows': 3}))
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('auto_id', 'id_priority_%s')  # pages render several forms; ids must stay unique
+        super().__init__(*args, **kwargs)
 
 
 class PlanForm(forms.Form):
@@ -55,11 +101,12 @@ class PlanForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         review_observation = kwargs.pop('review_observation', None)
+        kwargs.setdefault('auto_id', 'id_plan_%s')
         super().__init__(*args, **kwargs)
         recent = Observation.objects.order_by('-id').values('pk')[:100]
         selected = Q(pk=review_observation.pk) if review_observation else Q(pk__in=[])
         self.fields['observation'].queryset = Observation.objects.filter(Q(pk__in=recent) | selected).select_related('condition').order_by('-id')
-        self.fields['observation'].label_from_instance = lambda item: f'{item.source_id} / {item.source_revision} · {item.observed_at:%m-%d %H:%M} · {item.provenance}'
+        self.fields['observation'].label_from_instance = lambda item: item.display_label
 
 
 class ConditionForm(forms.ModelForm):
@@ -102,6 +149,10 @@ class ConfirmForm(forms.Form):
     expected_version = forms.IntegerField(widget=forms.HiddenInput)
     observed_at = forms.DateTimeField(label='직접 확인한 시각', widget=forms.DateTimeInput(attrs={'type': 'datetime-local'}, format='%Y-%m-%dT%H:%M'), help_text='현재 시각 기준 5분 이내의 직접 확인만 제출하세요.')
     outcome = forms.ChoiceField(label='확인 결과', choices=[('CLEAR', 'S가 이 차량의 적재면을 비웠음'), ('MISMATCH', '대상 또는 상태가 일치하지 않음'), ('UNABLE', '현재 확인할 수 없음')], widget=forms.RadioSelect)
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('auto_id', 'id_confirm_%s')
+        super().__init__(*args, **kwargs)
 
 
 class MeasurementForm(forms.ModelForm):

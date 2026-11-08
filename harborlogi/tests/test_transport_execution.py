@@ -50,6 +50,17 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(self.fleet.posts, 1)
         self.assertEqual(self.ledger.read(self.intent.request_key)["state"], "ACKNOWLEDGED")
 
+    def test_adapter_returns_normalized_facts_and_ledger_keeps_compatibility_result(self):
+        from harbor.execution import read_trip_execution
+        self.ledger.prepare(self.intent)
+        job = self.ledger.submit(self.intent.request_key, self.fleet, operator_confirmed=True)
+        snapshot = read_trip_execution(self.fleet, self.intent)
+        self.assertEqual(snapshot.phase, 'awaiting_execution')
+        self.assertEqual(snapshot.mission_id, job['mission_id'])
+        self.assertEqual(snapshot.request_key, self.intent.request_key)
+        self.assertIsNone(snapshot.attempt_id)
+        self.assertFalse(snapshot.goal_confirmed)
+
     def test_request_digest_matches_the_existing_fleet_unicode_encoding(self):
         self.assertEqual(self.intent.digest, "0842a72ee6f927525270599d02ccde95735ca1370bac4bfc36d2fe816bb7cf77")  # sha256
 

@@ -51,7 +51,7 @@ if MODE == 'live' and (not DB_PATH or not Path(DB_PATH).is_absolute() or 'legacy
 DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': DB_PATH or (':memory:' if MODE == 'test' else BASE_DIR / 'runs/web-development.sqlite3'), 'OPTIONS': {'timeout': 20}}}
 validate_database_path(DATABASES['default']['NAME'])
 INSTALLED_APPS = ['django.contrib.admin', 'django.contrib.auth', 'django.contrib.contenttypes', 'django.contrib.sessions', 'django.contrib.messages', 'django.contrib.staticfiles', 'axes', 'harbor_web.apps.HarborWebConfig']
-MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'whitenoise.middleware.WhiteNoiseMiddleware', 'django.contrib.sessions.middleware.SessionMiddleware', 'django.middleware.common.CommonMiddleware', 'django.middleware.csrf.CsrfViewMiddleware', 'django.contrib.auth.middleware.AuthenticationMiddleware', 'django.contrib.messages.middleware.MessageMiddleware', 'django.middleware.clickjacking.XFrameOptionsMiddleware', 'harbor_web.middleware.SecurityHeadersMiddleware', 'axes.middleware.AxesMiddleware']
+MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'whitenoise.middleware.WhiteNoiseMiddleware', 'django.contrib.sessions.middleware.SessionMiddleware', 'django.middleware.common.CommonMiddleware', 'django.middleware.csrf.CsrfViewMiddleware', 'django.contrib.auth.middleware.AuthenticationMiddleware', 'harbor_web.rosy_account.RosyAccountMiddleware', 'django.contrib.messages.middleware.MessageMiddleware', 'django.middleware.clickjacking.XFrameOptionsMiddleware', 'harbor_web.middleware.SecurityHeadersMiddleware', 'axes.middleware.AxesMiddleware']
 ROOT_URLCONF = 'harbor_web.urls'
 WSGI_APPLICATION = 'harbor_web.wsgi.application'
 TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'harbor_web/templates'], 'APP_DIRS': True, 'OPTIONS': {'context_processors': ['django.template.context_processors.request', 'django.contrib.auth.context_processors.auth', 'django.contrib.messages.context_processors.messages', 'harbor_web.presentation.context']}}]
@@ -93,6 +93,12 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 1048576
 DATA_UPLOAD_MAX_NUMBER_FIELDS = 200
 FILE_UPLOAD_MAX_MEMORY_SIZE = 1048576
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# ADR 0027: optional Rosy Account sign-in; unset keeps local accounts only.
+ROSY_ACCOUNT = None
+if os.environ.get('HARBOR_ROSY_ACCOUNT_FILE'):
+    from harbor_web.rosy_account import load_config
+    ROSY_ACCOUNT = load_config(os.environ['HARBOR_ROSY_ACCOUNT_FILE'])
 
 if os.environ.get('HARBOR_WEB_TRUSTED_PROXY') == '1':
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')

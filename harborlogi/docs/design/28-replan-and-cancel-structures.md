@@ -1,11 +1,15 @@
 # 재계획과 취소의 상태 구조
 
-2026-10-27. 결정: [ADR0013](../adr/0013-independent-business-execution-and-platform.md). 상위 계획: [설계31 P3](31-business-executor-implementation-plan.md). 상태: **상세설계(제안)** — 구현 전 확정 사항과 열린 질문을 적는다. 실행기(P1)와 근거 어댑터(P2)는 이미 착지했다.
+2026-10-27 설계, 2026-10-29 종착 이력·조회 경계 보강.
+결정: [ADR0013](../adr/0013-independent-business-execution-and-platform.md).
+상위 계획: [설계31 P3](31-business-executor-implementation-plan.md).
+아래 제안은 설계 당시 배경이며, 현재 구현은 Command의 주문별 이력과 공유 업무 서비스에서
+검증한다. 이 문서의 구현 현황을 실물 정지·점유 해제 수용으로 해석하지 않는다.
 
-## 현재 제약
+## 설계 당시 제약 (2026-10-27)
 
-- `Command.order`가 OneToOne이라 주문당 명령이 영구히 하나다. 재계획으로 새 계획을 착수하려면 이전 명령을 지워야 하는데 Command 이력은 삭제 불가다(설계24 지적).
-- 취소는 `CANCEL_PENDING`에 머문다. 종착 상태가 없어 "취소 완료"를 기록할 자리가 없다.
+- 당시 `Command.order`는 OneToOne이라 주문당 명령이 영구히 하나였다. 재계획으로 새 계획을 착수하려면 이전 명령을 지워야 했지만 Command 이력은 삭제 불가였다(설계24 지적).
+- 당시 취소는 `CANCEL_PENDING`에 머물렀다. 종착 상태가 없어 "취소 완료"를 기록할 자리가 없었다.
 - 불명(`UNKNOWN`)·원래 key 대조·backoff는 P1 실행기가 이미 처리하고 이 설계가 바꾸지 않는다.
 
 ## 제안 구조
@@ -13,7 +17,7 @@
 ### 1. 주문당 명령 이력
 
 - `Command.order`를 OneToOneField에서 ForeignKey(`related_name='commands'`)로 바꾼다.
-- 같은 주문에 **활성** 명령(상태 `DISPATCHING`, `RECONCILED`, `UNKNOWN`, `CANCEL_PENDING`)은 하나로 제한한다: `UniqueConstraint(fields=('order',), condition=Q(state__in=활성집합), name='one_active_command_per_order')`.
+- 같은 주문에 **활성** 명령은 하나로 제한한다. 구현의 활성 집합은 `harbor_web.command_models.ACTIVE_COMMAND_STATES`를 따르며 준비 상태도 포함한다. DB 제약 `one_active_command_per_order`와 업무 서비스가 같은 집합을 사용한다.
 - 종착 상태(`COMPLETED`, `BLOCKED`, `CANCELLED`)에 이른 명령은 이력으로 남는다. 역방향 접근 `order.command`를 쓰는 코드는 `order.commands.filter(상태 활성)` 조회로 바꾼다(영향 목록은 구현 커밋에서 점검).
 
 ### 2. 취소 종착 상태
@@ -22,6 +26,17 @@
 - 근거(2026-10-27 플랫폼 API reference v1.312 확인): ARM 작업 상태는 `PROPOSED`/`READY`/`RUNNING`/`ACTION_SUCCEEDED`/`GOAL_CONFIRMED`/`HOLD`뿐이고 취소 종착 상태가 없으며, "cancel과 HOLD는 점유를 유지하고 자동 재개되지 않는다"고 명시돼 있다. 취소 ACK는 정지·해제 증명이 아니므로(같은 문서), 앱이 조회 결과만으로 종찰을 만들 근거가 계약에 없다.
 - 종결 조치는 취소 요청·사유·확정자를 감사와 함께 남기고, 남은 미제출 단계를 영구히 닫는다. 이미 종착인 명령은 어떤 조치로도 바뀌지 않는다.
 - 플랫폼이 나중에 취소 종착·해제 근거를 공개 계약에 추가하면, 그 계약을 소비하는 별도 변경에서 자동 대조 전환을 다시 검토한다(이 설계가 미리 열지 않는다).
+
+### 2026-10-29 구현의 조작·조회 경계
+
+공유 업무 서비스는 활성 집합 밖 명령의 제출·대조·재개·취소 조작을 거절한다.
+복원 차단 사유가 `RESTORE_RECONCILIATION_REQUIRED`인 `BLOCKED` 명령의 대조만
+원래 요청의 GET 조회를 허용한다. 이 경로는 검증한 CommandFact만 추가하며 명령의
+상태·version과 업무 장부는 바꾸지 않는다. timeout에도 실행을 열지 않는다.
+
+최종 업무 근거 대기와 완료 단계는 현재 mission이 없으므로 이전 CommandFact를
+현재 실행에 다시 결속하지 않는다. 저장된 이력은 유지하고 화면은 장부 상태를 조회한다.
+코드·회귀 결과는 [검증 기록](../validation/2026-10-29-command-lifecycle-boundaries.md)을 따른다.
 
 ### 3. 재계획 흐름
 

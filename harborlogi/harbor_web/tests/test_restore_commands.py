@@ -64,8 +64,25 @@ class RestoreCommandsTests(TransactionTestCase):
                 command.refresh_from_db()
                 command = commands.submit_command(self.operator, command_id=command.pk, expected_version=command.version)
                 self.assertEqual(command.reason, 'RESTORE_RECONCILIATION_REQUIRED')
+                version = command.version
+                before = registry.ledger.read(commands._key(command))
                 command = commands.reconcile_command(self.operator, command_id=command.pk, expected_version=command.version)
+                self.assertEqual(command.state, 'BLOCKED')
+                self.assertEqual(command.version, version)
+                self.assertEqual(command.reason, 'RESTORE_RECONCILIATION_REQUIRED')
+                self.assertEqual(registry.ledger.read(commands._key(command)), before)
                 get.assert_called()
+                post.assert_not_called()
+                facts = CommandFact.objects.filter(command=command).count()
+                with patch.object(registry.client, 'arm_request', side_effect=TimeoutError):
+                    with self.assertRaises(Conflict):
+                        commands.reconcile_command(self.operator, command_id=command.pk,
+                            expected_version=command.version, resume=True)
+                command.refresh_from_db()
+                self.assertEqual(command.state, 'BLOCKED')
+                self.assertEqual(command.version, version)
+                self.assertEqual(registry.ledger.read(commands._key(command)), before)
+                self.assertEqual(CommandFact.objects.filter(command=command).count(), facts)
                 post.assert_not_called()
             command.refresh_from_db()
             self.assertEqual(command.ledger_identity, original)

@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for a new Harbor image every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=5min
+Unit=harbor-autoupdate.service
+
+[Install]
+WantedBy=timers.target

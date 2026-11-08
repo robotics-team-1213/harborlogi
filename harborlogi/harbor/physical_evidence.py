@@ -1,165 +1,95 @@
-"""Map one public, source-bound Fleet closure proof into existing business facts."""
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from hashlib import sha256
-import json
-import math
-import re
+"""Business evidence for ARM moves from Fleet's measured physical proofs (design 31 P2).
 
-from harbor.model import YARD_ARMS, aware_time, identifier, identifiers, revision
-from harbor.process import ArmTransferBinding
+A step uses the stored closure proof of its confirmed attempt (API v1.330). Final completion
+uses a recheck of the outbound attempt (API v1.334, D-930): new samples measured after the
+request, so moves made since then cannot hide behind the original proof. Each proof yields the
+latest object-pose sample (placement) and one retreat fact per arm that acted in the attempt
+(ADR 0029 decision 6): Fleet's released zone, Fleet's AT_TARGET_AND_CLEAR verdict and an empty
+gripper. Fleet chooses which arm acts, so Harbor keeps no instance map and stores no joints; it
+adds no measurement or kinematics of its own. Whether these sources may close
+business steps is the installer's choice of registered source ids.
+"""
+from datetime import datetime, timezone
+import hashlib
+import json
+
+from harbor.execution import read_arm_execution
+from harbor.model import identifier
 from harbor.workflow import ArmRetreat, MoveEvidence, PlacementEvidence, RetreatEvidence
 
 
-def _counter(value):
-    if type(value) is not int or not 0 <= value < 2**63:
-        raise ValueError("Expected an exact source counter/timestamp")
-    return value
+def _utc(ns):
+    if type(ns) is not int or not 0 <= ns < 2**63:
+        raise ValueError('Physical proof requires exact source times')
+    return datetime.fromtimestamp(ns / 1e9, timezone.utc)
 
 
-def _capture(value):
-    seconds, remainder = divmod(_counter(value), 1_000_000_000)
-    return datetime.fromtimestamp(seconds, timezone.utc) + timedelta(microseconds=remainder // 1000)
+def _confirmed_receipt(client, binding, request_key, mission_id):
+    execution = read_arm_execution(client, binding, request_key, mission_id=mission_id)
+    if not execution.goal_confirmed or execution.receipt is None:
+        raise ValueError('Fleet has not confirmed this physical attempt')
+    return execution.receipt
 
 
-def _unique_fields(pairs):
-    fields = dict(pairs)
-    if len(fields) != len(pairs):
-        raise ValueError("Duplicate physical proof field")
-    return fields
+def _evidence(binding, receipt, document, digest, zones, *, phase, base, mission_id, revision,
+              placement_source, retreat_source):
+    if not isinstance(document, str) or hashlib.sha256(document.encode()).hexdigest() != digest:
+        raise ValueError('Physical evidence bytes do not match their digest')
+    if not isinstance(zones, list) or not zones:
+        raise ValueError('Expected the zones Fleet released for the move')
+    for zone in zones:
+        identifier(zone)
+    proof = json.loads(document)
+    context, samples = proof['context'], proof['samples']
+    if (context['phase'] != phase or len(samples) != 2
+            or (context['action_id'], context['attempt_id']) != (receipt['action_id'], receipt['attempt_id'])):
+        raise ValueError('Physical proof does not belong to the receipt attempt')
+    latest, attempt = max(samples, key=lambda sample: sample['sequence']), receipt['attempt_id']
+    placement = PlacementEvidence(base + ':placement', mission_id, attempt, revision, placement_source,
+                                  _utc(latest['object_observed_at_ns']), binding.cargo_id, binding.destination)
+    # Fleet's own verdicts, never Harbor constants; a false one leaves the ledger stage waiting (HOLD).
+    # shortcut: one shared zone per move counts as released; several zones need a per-arm zone map first.
+    released, clear = len(zones) == 1, receipt.get('physical_status') == 'AT_TARGET_AND_CLEAR'
+    facts = []
+    for index, owner in enumerate(latest['owners'], 1):
+        joints = owner.get('joints')
+        if joints is None:
+            raise ValueError('Physical proof lacks measured owner samples')
+        # Participant labels are ordinal: Harbor does not keep Fleet instance ids (ADR 0029, D4).
+        facts.append(ArmRetreat(f'fleet-owner-{index}', zones[0], released,
+                                _utc(joints['observed_at_ns']), joints['sequence'],
+                                clear and owner.get('held_state') == 'NONE'))
+    retreat = RetreatEvidence(base + ':retreat', mission_id, attempt, revision, retreat_source,
+                              min(fact.pose_observed_at for fact in facts), tuple(facts))
+    return MoveEvidence(placement, retreat)
 
 
-@dataclass(frozen=True)
-class RetreatBinding:
-    arm: str
-    workcell_id: str
-    instance_id: str
-    zone_id: str
-    joint_names: tuple[str, ...]
-
-    def __post_init__(self):
-        if self.arm not in YARD_ARMS:
-            raise ValueError("Retreat binding names one yard arm A/B")
-        for value in (self.workcell_id, self.instance_id, self.zone_id):
-            identifier(value)
-        identifiers(self.joint_names)
-        if not 1 <= len(self.joint_names) <= 32:
-            raise ValueError("Expected an installed ordered joint list")
+def fleet_move_evidence(client, binding, request_key, *, mission_id, revision,
+                        placement_source, retreat_source):
+    receipt = _confirmed_receipt(client, binding, request_key, mission_id)
+    body = client.physical_evidence(mission_id)
+    if body.get('receipt') != receipt:
+        raise ValueError('Physical evidence does not match the verified receipt')
+    return _evidence(binding, receipt, body.get('evidence_document'), receipt['evidence_digest'],
+                     body.get('released_zone_ids'), phase='POST_ACTION', base=receipt['receipt_id'],
+                     mission_id=mission_id, revision=revision,
+                     placement_source=placement_source, retreat_source=retreat_source)
 
 
-@dataclass(frozen=True)
-class PhysicalEvidenceAdapter:
-    placement_source: str
-    retreat_source: str
-    policy_digest: str
-    arms: tuple[RetreatBinding, ...]
-
-    def __post_init__(self):
-        identifiers((self.placement_source, self.retreat_source))
-        if not isinstance(self.policy_digest, str) or re.fullmatch(r"[0-9a-f]{64}", self.policy_digest) is None:
-            raise ValueError("Expected the installed physical policy digest")
-        if (not isinstance(self.arms, tuple) or not self.arms
-                or not all(isinstance(arm, RetreatBinding) for arm in self.arms)
-                or len({arm.arm for arm in self.arms}) != len(self.arms)
-                or len({(arm.workcell_id, arm.instance_id) for arm in self.arms}) != len(self.arms)):
-            raise ValueError("Expected distinct installed arm and owner correspondence")
-
-    def read(self, client, binding, *, request_key, mission_id, attempt_id, plan_revision, required_arms, now):
-        """Read only the original job/proof; never admit, submit observations or call a device."""
-        if not isinstance(binding, ArmTransferBinding):
-            raise ValueError("Physical evidence requires an ARM transfer binding")
-        revision(plan_revision)
-        aware_time(now)
-        identifiers(required_arms)
-        by_arm = {arm.arm: arm for arm in self.arms}
-        if not required_arms or not set(required_arms) <= set(by_arm):
-            raise ValueError("Every related arm needs an installed measurement binding")
-        primary = (binding.workcell_id, binding.instance_id)
-        if binding.yard_arm:
-            installed = by_arm.get(binding.yard_arm)
-            if installed is None or (installed.workcell_id, installed.instance_id) != primary:
-                raise ValueError("Yard arm differs from the transfer's installed owner")
-        elif primary not in {(by_arm[name].workcell_id, by_arm[name].instance_id) for name in required_arms}:
-            raise ValueError("Primary transfer owner is absent from the required arm bindings")
-        job = binding.check(client.arm_job(mission_id)["job"], request_key)
-        if job["mission_id"] != mission_id or job["resource_policy_digest"] != self.policy_digest:
-            raise ValueError("Physical job differs from the original mission or installed policy")
-        response = client.physical_evidence(mission_id)
-        if not isinstance(response, dict) or set(response) != {"receipt", "evidence_document", "released_zone_ids"}:
-            raise ValueError("Expected the closed physical evidence response")
-        receipt = binding.check_receipt(job, response["receipt"])
-        if receipt["attempt_id"] != attempt_id:
-            raise ValueError("Physical evidence belongs to another attempt")
-        raw = response["evidence_document"]
-        if (not isinstance(raw, str) or len(raw.encode()) > 1024 * 1024
-                or sha256(raw.encode()).hexdigest() != receipt["evidence_digest"]):
-            raise ValueError("Original physical evidence bytes differ from the receipt")
-        try:
-            proof = json.loads(raw, object_pairs_hook=_unique_fields)
-            return self._adapt(proof, receipt, response["released_zone_ids"], binding, plan_revision, required_arms, now)
-        except (KeyError, TypeError, AttributeError, OverflowError, OSError) as error:
-            raise ValueError("Incomplete physical evidence") from error
-
-    def _adapt(self, proof, receipt, zones, binding, plan_revision, required_arms, now):
-        if not isinstance(proof, dict) or set(proof) != {"context", "samples"}:
-            raise ValueError("Expected the original closed proof document")
-        context, samples = proof["context"], proof["samples"]
-        if (context["phase"] != "POST_ACTION" or context["action_id"] != receipt["action_id"]
-                or context["attempt_id"] != receipt["attempt_id"]
-                or not isinstance(samples, list) or len(samples) != 2):
-            raise ValueError("Physical proof does not bind the successful attempt")
-        if not isinstance(zones, list) or not 1 <= len(zones) <= 32 or len(set(zones)) != len(zones):
-            raise ValueError("Expected original released zone references")
-        installed = {(arm.workcell_id, arm.instance_id): arm for arm in self.arms}
-        targets = {(p["workcell_id"], p["instance_id"]): (p["journal_id"], p["owner_session_id"])
-                   for p in context["owners"]}
-        if not targets or len(targets) != len(context["owners"]) or not set(targets) <= set(installed):
-            raise ValueError("Unknown or duplicate original owner scope")
-        boundary, validated = _counter(context["not_before_ns"]), _counter(receipt["validated_at_ns"])
-        previous, latest = {}, None
-        for sample in samples:
-            if (sample["producer_id"] != self.placement_source or sample["object_ref"] != binding.object_ref
-                    or sample["policy_digest"] != self.policy_digest or sample["object_pose"] is None
-                    or (sample["action_id"], sample["attempt_id"]) != (receipt["action_id"], receipt["attempt_id"])):
-                raise ValueError("Source observation differs from the installed transfer")
-            owners = {(p["workcell_id"], p["instance_id"]): p for p in sample["owners"]}
-            if set(owners) != set(targets) or len(owners) != len(sample["owners"]):
-                raise ValueError("Physical participant coverage is incomplete")
-            times = [sample["object_observed_at_ns"]]
-            for scope, owner in owners.items():
-                joint = owner["joints"]
-                expected = installed[scope]
-                if ((owner["journal_id"], owner["owner_session_id"]) != targets[scope]
-                        or tuple(joint["joint_names"]) != expected.joint_names
-                        or len(joint["positions_rad"]) != len(expected.joint_names)
-                        or not all(type(v) in (float, int) and math.isfinite(v) for v in joint["positions_rad"])):
-                    raise ValueError("Joint measurement differs from the installed owner and order")
-                identifier(joint["sample_id"])
-                sequence = _counter(joint["sequence"])
-                if scope in previous and (joint["sample_id"] == previous[scope][0] or sequence <= previous[scope][1]):
-                    raise ValueError("Original joint samples are not distinct and ordered")
-                previous[scope] = (joint["sample_id"], sequence)
-                times.extend((owner["links_observed_at_ns"], owner["gripper_observed_at_ns"], joint["observed_at_ns"]))
-            for stamp in times:
-                if not boundary < _counter(stamp) <= validated or not timedelta(0) <= now - _capture(stamp) <= timedelta(seconds=5):
-                    raise ValueError("Original physical capture is stale, future or outside the successful attempt")
-            if latest is not None and (sample["evidence_id"] == latest["evidence_id"]
-                                       or _counter(sample["sequence"]) <= _counter(latest["sequence"])):
-                raise ValueError("Original observations are not distinct and ordered")
-            latest = sample
-        retreats = []
-        for name in required_arms:
-            arm = next(arm for arm in self.arms if arm.arm == name)
-            owner = owners.get((arm.workcell_id, arm.instance_id))
-            if owner is None or arm.zone_id not in zones:
-                raise ValueError("Closure does not release every related arm's installed zone")
-            joints = owner["joints"]
-            # The immutable Fleet closure proves original release/clearance, not current zone availability.
-            retreats.append(ArmRetreat(name, arm.zone_id, True, tuple(joints["positions_rad"]),
-                                      _capture(joints["observed_at_ns"]), joints["sequence"], True))
-        placement = PlacementEvidence(latest["evidence_id"], receipt["mission_id"], receipt["attempt_id"],
-            plan_revision, self.placement_source, _capture(latest["object_observed_at_ns"]), binding.cargo_id, binding.destination)
-        retreat_time = min(fact.pose_observed_at for fact in retreats)
-        retreat = RetreatEvidence(receipt["receipt_id"], receipt["mission_id"], receipt["attempt_id"],
-                                  plan_revision, self.retreat_source, retreat_time, tuple(retreats))
-        return MoveEvidence(placement, retreat)
+def fleet_recheck_evidence(client, binding, request_key, recheck_key, *, mission_id, revision,
+                           placement_source, retreat_source):
+    """Request (idempotently) and read a recheck; None while Fleet still waits for new samples."""
+    receipt = _confirmed_receipt(client, binding, request_key, mission_id)
+    recheck = client.request_recheck(mission_id, recheck_key).get('recheck')
+    if (not isinstance(recheck, dict) or recheck.get('mission_id') != mission_id
+            or recheck.get('recheck_key') != recheck_key
+            or (recheck.get('action_id'), recheck.get('attempt_id')) != (receipt['action_id'], receipt['attempt_id'])):
+        raise ValueError('Fleet recheck does not belong to the confirmed outbound attempt')
+    if recheck.get('status') == 'WAITING_OBSERVATIONS':
+        return None
+    if recheck.get('status') != 'CONFIRMED':
+        raise ValueError('Unknown Fleet recheck status')
+    return _evidence(binding, receipt, recheck.get('evidence_document'), recheck.get('evidence_digest'),
+                     recheck.get('zone_ids'), phase='RECHECK', base=f'{receipt["receipt_id"]}:recheck:{recheck_key}',
+                     mission_id=mission_id, revision=revision,
+                     placement_source=placement_source, retreat_source=retreat_source)

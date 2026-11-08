@@ -1,6 +1,5 @@
 """Local read-only Harbor workbench. Never owns execution or ledger recovery."""
 import argparse
-from contextlib import closing
 from datetime import datetime, timezone
 from http import HTTPStatus
 import ipaddress
@@ -10,11 +9,12 @@ import os
 import re
 from pathlib import Path
 import sqlite3
-from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 from wsgiref.simple_server import make_server, WSGIRequestHandler
 
 from harbor.process import ArmTransferBinding
+from harbor.execution import arm_execution_view
+from harbor.ledger import ReadOnlyLedger, plan_payload
 from harbor.planning_view import preview
 from harbor.rosy_http import RosyClient
 
@@ -37,33 +37,10 @@ def _brand_file(name):
     raise FileNotFoundError('Brand asset not installed')
 
 
-class ReadOnlyLedger:
-    def __init__(self, path):
-        self.path = Path(path).resolve()
-
-    def _read(self, key=None):
-        with closing(sqlite3.connect(self.path.as_uri() + '?mode=ro', uri=True, timeout=3)) as c:
-            c.row_factory = sqlite3.Row
-            c.execute('PRAGMA query_only=ON')
-            if key is None:
-                rows = c.execute('SELECT * FROM business ORDER BY request_key LIMIT 201').fetchall()
-                if len(rows) > 200:
-                    raise ValueError('This local workbench supports up to 200 tasks')
-                return [dict(row) for row in rows]
-            row = c.execute('SELECT * FROM business WHERE request_key=?', (key,)).fetchone()
-            if row is None:
-                raise KeyError(key)
-            return dict(row)
-
-    def tasks(self):
-        return self._read()
-
-    def read(self, key):
-        return self._read(key)
 
 
 def _summary(row):
-    payload = json.loads(row['payload'])
+    payload = plan_payload(row)
     return {key: row.get(key) for key in ('request_key', 'state', 'row_version', 'step_index', 'mission_id',
                                           'attempt_id', 'goal_confirmed')} | {
         'cargo_id': payload['outbound_id'], 'revision': payload['revision'],
@@ -97,7 +74,7 @@ class Workbench:
 
     def detail(self, key):
         row = self.ledger.read(key)
-        payload = json.loads(row['payload'])
+        payload = plan_payload(row)
         result = {'mode': 'demo' if self.demo else 'live', 'business': _summary(row),
                   'read_at': datetime.now(timezone.utc).isoformat(), 'console_url': self.console_url,
                   'plan': [{'cargo_id': move['cargo_id'], 'source': move['source'],
@@ -119,29 +96,10 @@ class Workbench:
             return result
         try:
             binding = ArmTransferBinding(**payload['moves'][row['step_index']])
-            job = binding.check(self.client.arm_job(row['mission_id'])['job'],
-                                f"{key}:{row['step_index']}")
-            if job['mission_id'] != row['mission_id']:
-                raise ValueError('Different mission')
-            # Explicit projection: upstream extensions must not expose credentials or raw internals.
-            result['fleet'] = {field: job.get(field) for field in
-                               ('status', 'mission_id', 'proposal_digest', 'approved_by',
-                                'authority_epoch', 'dispatch_generation')}
-            if job['status'] == 'GOAL_CONFIRMED':
-                try:
-                    receipt = binding.check_receipt(job, self.client.physical_receipt(row['mission_id'])['receipt'])
-                    result['receipt'] = {'status': 'VERIFIED', **{field: receipt[field] for field in
-                        ('receipt_id', 'action_id', 'attempt_id', 'physical_status', 'validated_at_ns')}}
-                except (KeyError, ValueError, TypeError):
-                    result['receipt'] = {'status': 'MISMATCH'}
-                except (OSError, HTTPError):
-                    result['receipt'] = {'status': 'UNAVAILABLE'}
+            result['fleet'], result['receipt'] = arm_execution_view(
+                self.client, binding, f"{key}:{row['step_index']}", row['mission_id'])
         except (ValueError, KeyError, TypeError, IndexError):
             result['fleet'] = {'status': 'MISMATCH'}
-        except HTTPError as exc:
-            result['fleet'] = {'status': 'FORBIDDEN' if exc.code in (401, 403) else 'UNAVAILABLE'}
-        except OSError:
-            result['fleet'] = {'status': 'UNAVAILABLE'}
         current = self.ledger.read(key)
         if any(current[field] != row[field] for field in ('row_version', 'digest', 'mission_id', 'step_index', 'state')):
             result['fleet'], result['receipt'] = {'status': 'STALE'}, {'status': 'NOT_VERIFIED'}

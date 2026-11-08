@@ -1,6 +1,4 @@
 from dataclasses import dataclass
-import hashlib
-import json
 import re
 
 from harbor.model import YARD_ARMS, identifier
@@ -33,15 +31,12 @@ class ProcessBinding:
                 raise ValueError("Invalid installed document digest")
 
     def compile_request(self):
-        return {"recipe_id": self.recipe_id, "recipe_digest": self.recipe_digest,
-                "cell_id": self.cell_id, "cell_digest": self.cell_digest}
+        from harbor.fleet_contract import process_compile_request
+        return process_compile_request(self)
 
     def proposal_request(self, request_key):
-        identifier(request_key)
-        if len(request_key) > 160 or any(ord(c) < 32 for c in request_key):
-            raise ValueError("Invalid process request key")
-        return {**self.compile_request(), "request_key": request_key,
-                "workcell_id": self.workcell_id, "instance_id": self.instance_id}
+        from harbor.fleet_contract import process_proposal_request
+        return process_proposal_request(self, request_key)
 
 
 @dataclass(frozen=True)
@@ -73,47 +68,18 @@ class ArmTransferBinding:
             raise ValueError("A per-arm transfer binding names one yard arm A/B")
         if self.source_ref == self.target_ref:
             raise ValueError("Physical source and target must differ")
-        if self.source_ref == self.target_ref:
-            raise ValueError("Physical source and target must differ")
 
     def proposal_request(self, request_key):
-        identifier(request_key)
-        if len(request_key) > 160 or request_key != request_key.strip() or any(ord(c) < 32 for c in request_key):
-            raise ValueError("Invalid physical transfer request key")
-        return dict(request_key=request_key, workcell_id=self.workcell_id, instance_id=self.instance_id,
-                    object_ref=self.object_ref, source=self.source_ref, target=self.target_ref)
+        from harbor.fleet_contract import arm_request
+        return arm_request(self, request_key)
 
     def check(self, job, request_key):
-        request = self.proposal_request(request_key)
-        transfer = {k: v for k, v in request.items() if k != "request_key"}
-        digest = hashlib.sha256(json.dumps(transfer, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-        if (not isinstance(job, dict) or job.get("action_kind") != "ARM_TRANSFER"
-                or job.get("request_key") != request_key or job.get("transfer") != transfer
-                or job.get("request_digest") != digest or job.get("status") not in {
-                    "PROPOSED", "READY", "RUNNING", "ACTION_SUCCEEDED", "GOAL_CONFIRMED", "HOLD"}):
-            raise ValueError("Fleet physical job does not match the bound Harbor move")
-        identifier(job.get("mission_id"))
-        return job
+        from harbor.fleet_contract import validate_arm_job
+        return validate_arm_job(self, job, request_key)
 
     def check_receipt(self, job, receipt):
-        if not isinstance(receipt, dict):
-            raise ValueError("A physical receipt is required")
-        expected = dict(mission_id=job["mission_id"], workcell_id=self.workcell_id, instance_id=self.instance_id,
-            object_ref=self.object_ref, source=self.source_ref, target=self.target_ref,
-            policy_digest=job["resource_policy_digest"], authority_epoch=job["authority_epoch"],
-            dispatch_generation=job["dispatch_generation"], physical_status="AT_TARGET_AND_CLEAR")
-        if job["status"] != "GOAL_CONFIRMED" or any(receipt.get(k) != v for k, v in expected.items()):
-            raise ValueError("Physical receipt does not match the confirmed bound job")
-        for key in ("authority_epoch", "dispatch_generation", "validated_at_ns"):
-            if type(receipt.get(key)) is not int or not 0 <= receipt[key] < 2**63:
-                raise ValueError("Physical receipt requires exact counters")
-        # Receipt request_digest identifies the full grant; job request_digest identifies the transfer body (ADR 0006).
-        for key in ("request_digest", "policy_digest", "evidence_digest"):
-            if not isinstance(receipt.get(key), str) or not re.fullmatch(r"[0-9a-f]{64}", receipt[key]):
-                raise ValueError("Invalid physical receipt digest")
-        for key in ("receipt_id", "action_id", "attempt_id"):
-            identifier(receipt.get(key))
-        return receipt
+        from harbor.fleet_contract import validate_arm_receipt
+        return validate_arm_receipt(self, job, receipt)
 
 
 def anchor_address(area_id, row, column, level):
@@ -181,14 +147,54 @@ class SpatialPlacementBinding:
                                   self.instance_id, self.object_ref, self.source_ref, self.target_ref)
 
 
+@dataclass(frozen=True)
+class SimulationCellTemplate:
+    """Temporary simulation-only binding for R2 rearrangement moves (design 32, 2026-10-31).
+
+    Each move becomes an ARM transfer between placement anchor addresses on one
+    workcell, run by the instance of the move's primary arm. The command gate
+    accepts it only on the simulation path (synthetic observation, loopback Fleet).
+    shortcut: anchors are named by convention, not installed and verified per move;
+    replace with design 29 per-move cell bindings before any physical run.
+    """
+    simulation_cell_template: bool
+    workcell_id: str
+    instances: dict
+
+    def __post_init__(self):
+        if self.simulation_cell_template is not True:
+            raise ValueError('Expected a simulation cell template')
+        identifier(self.workcell_id)
+        if (not isinstance(self.instances, dict) or not self.instances
+                or not set(self.instances) <= set(YARD_ARMS)):
+            raise ValueError('Simulation instances are keyed by yard arm A/B')
+        for value in self.instances.values():
+            identifier(value)
+
+    def moves(self, plan_moves):
+        bound = []
+        for move in plan_moves:
+            arm = move['primary_arm']
+            if arm not in self.instances:
+                raise ValueError('No simulation instance for this arm')
+            ends = [anchor_address(p['area_id'], p['row'], p['column'], p['level'])
+                    for p in (move['source_placement'], move['destination_placement'])]
+            bound.append(ArmTransferBinding(move['cargo_id'], move['source'], move['destination'], self.workcell_id,
+                                            self.instances[arm], move['cargo_id'], *ends, arm))
+        return tuple(bound)
+
+
 def load_bindings(items):
     """Installed binding entries: a footprint key makes a spatial placement binding."""
     bindings = []
     for item in items:
         if not isinstance(item, dict):
             raise ValueError('Installed bindings are objects')
-        bindings.append(SpatialPlacementBinding(**item) if 'footprint_revision' in item
-                        else ArmTransferBinding(**item))
+        if 'simulation_cell_template' in item:
+            bindings.append(SimulationCellTemplate(**item))
+        else:
+            bindings.append(SpatialPlacementBinding(**item) if 'footprint_revision' in item
+                            else ArmTransferBinding(**item))
     return tuple(bindings)
 
 
@@ -227,7 +233,8 @@ def bind_plan(proposal: OutboundProposal,
                 raise ValueError("Ambiguous process binding")  # Same arm twice for one move.
             entries.append(binding)
     try:
-        # Per-arm entries resolve to the primary (first installed) arm's binding.
+        # Per-arm entries resolve to the primary (first installed) arm's binding. ROSY's ArmTransferJobCreate
+        # still requires instance_id, so it is sent, but Fleet owns fallback switching and nothing checks it later.
         return tuple(by_move[(m.cargo_id, m.source, m.destination)][0] for m in proposal.moves)
     except KeyError as exc:
         raise ValueError("A move has no installed process binding") from exc

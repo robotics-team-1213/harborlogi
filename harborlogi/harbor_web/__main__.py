@@ -3,6 +3,14 @@ import argparse
 import os
 
 
+def serve_options(environ=os.environ):
+    options = dict(host='127.0.0.1', threads=4)
+    if environ.get('HARBOR_WEB_TRUSTED_PROXY') == '1':
+        # Waitress 3 strips X-Forwarded-Proto from untrusted peers; Django would then redirect to HTTPS forever.
+        options.update(trusted_proxy='127.0.0.1', trusted_proxy_headers={'x-forwarded-proto'})
+    return options
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=8060)
@@ -30,7 +38,7 @@ def main():
         if configured:
             acquire_registry()
         from waitress import serve
-        serve(application, host='127.0.0.1', port=args.port, threads=4)
+        serve(application, port=args.port, **serve_options())
     finally:
         registry_close()
         lease.__exit__()

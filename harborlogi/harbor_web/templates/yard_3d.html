@@ -14,9 +14,9 @@
   <div class="model-layout">
     <div class="model-viewport">
       <div class="model-tools" role="group" aria-label="카메라 도구"><button class="quiet" type="button" data-scene-action="orbit" aria-pressed="true">회전</button><button class="quiet" type="button" data-scene-action="pan" aria-pressed="false">화면 이동</button><button class="quiet" type="button" data-scene-action="fit">전체 맞춤</button></div>
-      <canvas tabindex="0" role="img" aria-label="컨테이너 모델. 드래그 회전, 오른쪽 또는 Shift 드래그 화면 이동, 휠 확대. 방향키 이동, Shift 방향키 회전, 더하기·빼기 확대, Home 전체 맞춤. 아래 목록에서도 화물을 선택할 수 있습니다."></canvas>
+      <canvas tabindex="0" role="application" aria-roledescription="3D 모델 뷰어" aria-label="컨테이너 모델" aria-describedby="{{ scene_id }}-keys"></canvas>
       <div class="scene-toolbar"><div class="scene-camera" role="group" aria-label="보기 각도"><button class="quiet" type="button" data-scene-camera="iso">입체</button><button class="quiet" type="button" data-scene-camera="front">정면</button><button class="quiet" type="button" data-scene-camera="top">위에서</button></div><div role="group" aria-label="확대"><button class="quiet" type="button" data-scene-zoom="-0.15" aria-label="축소">−</button><button class="quiet" type="button" data-scene-zoom="0.15" aria-label="확대">+</button></div></div>
-      <p class="model-gestures">오른쪽 드래그: 이동 · 휠: 확대 · 터치 두 손가락: 이동·확대</p>
+      <p class="model-gestures" id="{{ scene_id }}-keys">드래그: 회전 · 오른쪽 또는 Shift 드래그: 화면 이동 · 휠: 확대 · 터치 두 손가락: 이동·확대 · 키보드: 방향키 이동, Shift 방향키 회전, 더하기·빼기 확대, Home 전체 맞춤 · 아래 목록에서도 화물을 선택할 수 있습니다.</p>
     </div>
     <aside class="model-inspector" aria-label="선택 화물 확인과 가상 편집">
       <label class="model-cargo">화물 살펴보기<select data-scene-cargo><option value="">화물 선택</option></select></label>

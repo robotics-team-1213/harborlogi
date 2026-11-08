@@ -25,6 +25,16 @@ def policy():
 
 
 class SpatialTests(unittest.TestCase):
+    def test_rotation_only_on_installed_area_pairs(self):
+        # A two-cell cargo lying at 90 degrees does not fit the 1x3 stand unless it may turn there.
+        source = snapshot([('target', 2)], [Placement('target', 'yard', 1, 1, 1, 90)], stand=Area('stand', 1, 3, 1))
+        request = OutboundRequest('target', 4)
+        self.assertEqual(plan_spatial(source, request, policy(), now=NOW).status, 'HOLD')
+        ready = plan_spatial(source, request, policy(), now=NOW, rotation_moves=frozenset({('yard', 'stand')}))
+        self.assertEqual(ready.status, 'READY')
+        final = ready.moves[-1].destination_placement
+        self.assertEqual((final.area_id, final.orientation), ('stand', 0))
+
     def test_variable_rectangular_layout_and_large_coordinates(self):
         layout = YardLayout(12, 11, 6, tuple(YardCell(f'Y{r}-{c}', r, c)
             for r in range(1, 13) for c in range(1, 12)))

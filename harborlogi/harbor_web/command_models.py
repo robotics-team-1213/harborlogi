@@ -87,3 +87,23 @@ class EvidenceSubmission(Immutable):
     retreat = models.JSONField()
     received_at = models.DateTimeField(auto_now_add=True)
 
+
+
+class HumanAttestation(Immutable):
+    """A named field person's visual verdict on one business stage (ADR 0023).
+
+    Not a measurement: it holds the ledger stage it was bound to (mission, attempt, step),
+    the cargo and location the person saw, the arms they saw waiting outside the zone, and an
+    optional note or photo reference. created_by/created_at are the attester and server time.
+    """
+    command = models.ForeignKey(Command, on_delete=models.PROTECT, related_name='human_attestations')
+    phase = models.CharField(max_length=5, choices=[('step', 'step'), ('final', 'final')])
+    step_index = models.PositiveIntegerField()
+    mission_id = models.CharField(max_length=192)
+    attempt_id = models.CharField(max_length=192)
+    revision = models.PositiveIntegerField()
+    cargo_id = models.CharField(max_length=96)
+    location = models.CharField(max_length=96)
+    arms = models.JSONField()
+    note = models.CharField(max_length=300, blank=True)
+    photo_ref = models.CharField(max_length=200, blank=True)

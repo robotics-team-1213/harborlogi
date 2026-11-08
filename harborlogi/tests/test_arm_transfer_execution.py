@@ -49,6 +49,34 @@ class ArmExecutionTests(unittest.TestCase):
                        move_arms=(("A", "B"),))
         return ledger
 
+    def test_submission_returns_the_same_bound_snapshot_as_the_saved_mission(self):
+        fleet = Fleet()
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = self.prepare(tmp)
+            result = ledger.submit('outbound', RosyClient(transport=fleet), principal='harbor')
+            self.assertEqual(result.mission_id, ledger.read('outbound')['mission_id'])
+            self.assertEqual(result.request_key, 'outbound:0')
+            self.assertEqual(result.phase, 'awaiting_approval')
+            self.assertIsNone(result.attempt_id)
+            self.assertFalse(result.goal_confirmed)
+            self.assertEqual(result.job['mission_id'], result.mission_id)
+            self.assertEqual([(method, path) for method, path, _ in fleet.calls], [
+                ('POST', '/api/fleet/arm-transfers/jobs'),
+                ('GET', '/api/fleet/arm-transfers/jobs?request_key=outbound%3A0')])
+
+    def test_confirmed_submission_requires_a_matching_receipt_without_reposting(self):
+        fleet = Fleet()
+        fleet.status = 'GOAL_CONFIRMED'
+        fleet.receipt_changes = {'target': 'different-target'}
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = self.prepare(tmp)
+            with self.assertRaises(ValueError):
+                ledger.submit('outbound', RosyClient(transport=fleet), principal='harbor')
+            self.assertEqual(ledger.read('outbound')['state'], 'HOLD')
+            with self.assertRaises(ValueError):
+                ledger.submit('outbound', RosyClient(transport=fleet), principal='harbor')
+            self.assertEqual(sum(method == 'POST' for method, _, _ in fleet.calls), 1)
+
     def test_neutral_http_binding_keeps_business_completion_and_evidence_in_harbor(self):
         fleet = Fleet()
         with tempfile.TemporaryDirectory() as tmp:

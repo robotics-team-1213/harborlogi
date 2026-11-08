@@ -86,6 +86,16 @@ class RosyClient:
             "candidate_robot_ids": list(candidates), "request_key": request_key, "steps": list(steps),
         })
 
+    def trip_propose(self, candidates, steps, *, request_key, object_ref=None):
+        # D-908: the app only proposes; a different named operator admits outside Harbor.
+        cargo = {} if object_ref is None else {"object_ref": object_ref}  # ADR 0029 optional field
+        return self._call("POST", "/api/fleet/trip-proposals", {
+            "candidate_robot_ids": list(candidates), "request_key": request_key, "steps": list(steps), **cargo,
+        })
+
+    def trip_proposal_request(self, request_key):
+        return self._call("GET", "/api/fleet/trip-proposals?request_key=" + quote(request_key, safe=""), None)
+
     def trip_job(self, mission_id):
         return self._call("GET", "/api/fleet/trip-jobs/" + quote(mission_id, safe=""), None)
 
@@ -112,6 +122,24 @@ class RosyClient:
 
     def physical_evidence(self, mission_id):
         return self._call("GET", "/api/fleet/arm-transfers/jobs/" + quote(mission_id, safe="") + "/physical-evidence", None)
+
+    def recheck_read(self, mission_id, recheck_key):
+        return self._call("GET", "/api/fleet/arm-transfers/jobs/" + quote(mission_id, safe="") + "/rechecks/" + quote(recheck_key, safe=""), None)
+
+    def port_events(self, *, after=None, limit=100):
+        """ADR 0029 read on R; `after` is R's opaque cursor, passed back unparsed."""
+        if type(limit) is not int or not 1 <= limit <= 200:
+            raise ValueError("Port event page size is 1..200")
+        query = f"?limit={limit}" if after is None else f"?after={quote(after, safe='')}&limit={limit}"
+        return self._call("GET", "/api/fleet/port-events" + query, None)
+
+    def execution_profile(self):
+        # Proposed read-only platform signal (ADR0022); no platform route exists yet, so every answer is unmet.
+        return self._call("GET", "/api/fleet/execution-profile", None)
+
+    def request_recheck(self, mission_id, recheck_key):
+        return self._call("POST", "/api/fleet/arm-transfers/jobs/" + quote(mission_id, safe="") + "/rechecks",
+                          {"recheck_key": recheck_key})
 
     def cancel_arm(self, mission_id, *, reason):
         if not isinstance(reason, str) or not reason.strip() or len(reason) > 192 or any(ord(c) < 32 for c in reason):
