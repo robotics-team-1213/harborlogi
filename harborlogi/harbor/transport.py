@@ -6,7 +6,8 @@ import re
 import sqlite3
 
 from harbor.model import identifier, identifiers
-from harbor.execution import read_trip_execution, submit_trip_execution
+from harbor.execution import (read_trip_execution, read_trip_proposal_execution,
+                              submit_trip_execution, submit_trip_proposal_execution)
 
 
 def _json(value):
@@ -19,6 +20,7 @@ class TripIntent:
     candidates: tuple[str, ...]
     destination: str
     via: tuple[str, ...] = ()
+    object_ref: str = ''  # Harbor cargo code ROSY carries unread onto the S job (ADR 0029); empty = none.
 
     def __post_init__(self):
         identifier(self.request_key)
@@ -33,6 +35,9 @@ class TripIntent:
             identifier(place)
             if len(place) > 64 or any(ord(c) < 32 for c in place):
                 raise ValueError("Invalid registered place reference")
+        if self.object_ref and (self.object_ref != self.object_ref.strip() or len(self.object_ref) > 128
+                                or any(ord(c) < 32 for c in self.object_ref)):
+            raise ValueError("Invalid cargo object reference")
 
     @property
     def steps(self):
@@ -79,34 +84,46 @@ class TransportLedger:
     @staticmethod
     def _intent(row):
         value = json.loads(row["payload"])
-        return TripIntent(row["request_key"], tuple(value["candidates"]), value["destination"], tuple(value["via"]))
+        return TripIntent(row["request_key"], tuple(value["candidates"]), value["destination"], tuple(value["via"]),
+                          value.get("object_ref", ""))
 
     def prepare(self, intent):
         if not isinstance(intent, TripIntent):
             raise ValueError("Expected an immutable transport intent")
-        payload = _json({"candidates": intent.candidates, "destination": intent.destination, "via": intent.via})
+        cargo = {"object_ref": intent.object_ref} if intent.object_ref else {}  # Older rows keep their bytes.
+        payload = _json({"candidates": intent.candidates, "destination": intent.destination, "via": intent.via, **cargo})
         with closing(self._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
-            old = connection.execute("SELECT digest FROM transport_intents WHERE request_key=?",
+            old = connection.execute("SELECT digest, payload FROM transport_intents WHERE request_key=?",
                                      (intent.request_key,)).fetchone()
-            if old is not None and old["digest"] != intent.digest:
+            if old is not None and (old["digest"] != intent.digest or old["payload"] != payload):
                 raise ValueError("Transport request key conflicts with existing contents")
             connection.execute("INSERT OR IGNORE INTO transport_intents(request_key,payload,digest,state) "
                                "VALUES(?,?,?,'PLANNED')", (intent.request_key, payload, intent.digest))
 
     def _adopt(self, row, execution):
+        # A proposal waiting for another operator has no job yet; it must not be mistaken for an accepted trip.
+        state = "AWAITING_APPROVAL" if execution.phase == "awaiting_approval" else "ACKNOWLEDGED"
         if row["mission_id"] is not None and row["mission_id"] != execution.mission_id:
             raise ValueError("Fleet transport identity changed")
         with closing(self._connect()) as connection, connection:
-            result = connection.execute("UPDATE transport_intents SET state='ACKNOWLEDGED',mission_id=?,version=version+1 "
-                "WHERE request_key=? AND version=?", (execution.mission_id, row["request_key"], row["version"]))
+            result = connection.execute("UPDATE transport_intents SET state=?,mission_id=?,version=version+1 "
+                "WHERE request_key=? AND version=?", (state, execution.mission_id, row["request_key"], row["version"]))
             if result.rowcount != 1:
                 raise ValueError("Transport intent changed while the response was pending; reconcile again")
         return execution.job
 
     def submit(self, key, client, *, operator_confirmed):
+        """Direct named-operator TRIP start; a service identity must use propose()."""
         if operator_confirmed is not True:
             raise ValueError("Explicit operator confirmation is required to start transport")
+        return self._submit(key, client, submit_trip_execution)
+
+    def propose(self, key, client):
+        """D-908: ask Fleet for approval once. Nothing moves until a different named operator admits."""
+        return self._submit(key, client, submit_trip_proposal_execution)
+
+    def _submit(self, key, client, send):
         row = self.read(key)
         if row["state"] != "PLANNED":
             raise ValueError("Transport was already submitted or is uncertain; reconcile without resubmitting")
@@ -118,7 +135,7 @@ class TransportLedger:
         row = {**row, "version": row["version"] + 1, "state": "SUBMITTING"}
         intent = self._intent(row)
         try:
-            job = submit_trip_execution(client, intent)
+            job = send(client, intent)
             return self._adopt(row, job)
         except BaseException:
             with closing(self._connect()) as connection, connection:
@@ -127,7 +144,13 @@ class TransportLedger:
             raise
 
     def reconcile(self, key, client):
+        return self._reconcile(key, client, read_trip_execution)
+
+    def reconcile_proposal(self, key, client):
+        return self._reconcile(key, client, read_trip_proposal_execution)
+
+    def _reconcile(self, key, client, read):
         row = self.read(key)
         if row["state"] == "SUBMITTING":
             raise ValueError("Submission is still pending")
-        return self._adopt(row, read_trip_execution(client, self._intent(row)))
+        return self._adopt(row, read(client, self._intent(row)))

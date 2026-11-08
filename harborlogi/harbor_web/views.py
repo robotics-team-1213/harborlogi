@@ -1,6 +1,7 @@
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
@@ -8,6 +9,8 @@ from django.views.decorators.http import require_http_methods
 
 from harbor_web import forms, services
 from harbor_web.auth import has_role, require_roles
+from harbor_web.cargo_history import cargo_history as build_history
+from harbor_web.order_timeline import order_timeline as build_timeline
 from harbor_web.models import Audit, Cargo, CargoFootprint, Command, Condition, FieldEpisode, Observation, Order, Plan
 
 
@@ -63,8 +66,8 @@ def overview(request):
     issues = list(Command.objects.filter(state__in=['UNKNOWN', 'DISPATCHING', 'CANCEL_PENDING', 'BLOCKED']).select_related('plan__order__cargo').order_by('created_at')[:12])
     issue_ids = [command.plan.order_id for command in issues]
     requests = [command.plan.order for command in issues]
-    requests += list(Order.objects.exclude(pk__in=issue_ids).select_related('cargo').order_by('priority_group', 'sequence', 'id')[:12 - len(requests)])
-    executions = {command.plan.order_id: command for command in Command.objects.filter(plan__order_id__in=[order.pk for order in requests]).select_related('plan')}
+    requests += list(Order.objects.exclude(kind='REARRANGE').exclude(pk__in=issue_ids).select_related('cargo').order_by('priority_group', 'sequence', 'id')[:12 - len(requests)])
+    executions = {command.plan.order_id: command for command in Command.objects.filter(plan__order_id__in=[order.pk for order in requests]).select_related('plan').order_by('pk')}  # newest wins
     plans = {p.order_id: p for p in Plan.objects.filter(order_id__in=[o.pk for o in requests]).order_by('id')}
     rows = []
     current_queue_digest = services.queue_digest()
@@ -94,7 +97,11 @@ def overview(request):
             row.update(status='HOLD', status_label='계획 재검토', reason=changes[0]['message'], action='최신 기준으로 검토', href=f'/requests/{order.pk}/')
         command = executions.get(order.pk)
         if command:
-            row.update(status=command.state, status_label={'UNKNOWN': '결과 불명', 'DISPATCHING': '제출 대조 필요', 'CANCEL_PENDING': '취소 대조 필요', 'BLOCKED': '인계 보류', 'PREPARED': '제안 검토 대기', 'RECONCILED': '원본 대조됨'}.get(command.state, command.state), action='원래 작업 대조', href=f'/work/{command.pk}/')
+            row.update(status=command.state, status_label={'UNKNOWN': '결과 불명', 'DISPATCHING': '제출 대조 필요', 'CANCEL_PENDING': '취소 대조 필요', 'BLOCKED': '인계 보류', 'PREPARED': '제안 검토 대기', 'RECONCILED': '원본 대조됨', 'COMPLETED': '업무 완료', 'CANCELLED': '취소됨'}.get(command.state, command.state), action='원래 작업 대조', href=f'/work/{command.pk}/')
+            if command.state == 'COMPLETED':
+                row.update(action='완료 기록 보기', href=f'/requests/{order.pk}/timeline/', finished=True)
+            elif command.state == 'CANCELLED':
+                row.update(action='최신 기준으로 검토', href=f'/requests/{order.pk}/')
             row['reason'] = {
                 'UNKNOWN': '제출 결과가 불명입니다. 새 계획으로 재제출하지 말고 원래 요청을 대조하세요.',
                 'DISPATCHING': '제출 중이거나 응답을 확인하지 못했습니다. 원래 요청을 대조하세요.',
@@ -102,14 +109,20 @@ def overview(request):
                 'BLOCKED': '실행 인계가 보류되었습니다. 원래 작업의 설치·관측·복구 조건을 확인하세요.',
                 'PREPARED': '실행 인계 요청이 준비되었습니다. 원래 계획으로 현재 단계 제안을 검토하세요.',
                 'RECONCILED': '실행 원본을 대조했습니다. 실제 수행과 전체 업무 완료 근거를 확인하세요.',
+                'COMPLETED': '업무 장부가 내려놓기·퇴피 근거를 대조해 완료했습니다. 남은 조치는 없습니다.',
+                'CANCELLED': '실행 인계가 취소되었습니다. 필요하면 최신 기준으로 다시 검토하세요.',
             }.get(command.state, '원래 작업의 상태와 근거를 확인하세요.')
         rows.append(row)
+    rows.sort(key=lambda row: row.get('finished', False))  # finished work never outranks open work
     if observation:
         for row in rows:
             if row['href'].startswith(('/requests/', '/plans/')):
                 row['href'] += f'?observation={observation.pk}'
     from harbor_web.operations import operations_context
-    return page(request, 'overview.html', section='overview', rows=rows, operations=operations_context(observation), observations=observations,
+    operations = operations_context(observation)
+    for job in operations['workload']['plans']:  # the timeline panel shows the last recorded facts of each listed job
+        job['facts'] = build_timeline(job['plan'].order)['actual_line'][-4:]
+    return page(request, 'overview.html', section='overview', rows=rows, operations=operations, observations=observations,
                 observation=observation, condition=observation.condition if observation else None,
                 field_pending=FieldEpisode.objects.filter(state='OPEN').count())
 
@@ -118,12 +131,32 @@ def overview(request):
 @require_http_methods(['GET'])
 def cargo_list(request):
     q = request.GET.get('q', '')[:200]
-    items = Cargo.objects.filter(Q(code__icontains=q) | Q(name__icontains=q) | Q(destination__icontains=q)).order_by('-id')
+    sort = request.GET.get('sort', '')
+    columns = {'weight': 'weight_kg', 'volume': 'volume_m3'}
+    field = columns.get(sort.lstrip('-'))
+    order = (f'-{field}' if sort.startswith('-') else field, '-id') if field else ('-id',)
+    items = Cargo.objects.filter(Q(code__icontains=q) | Q(name__icontains=q) | Q(destination__icontains=q)).order_by(*order)
     pagination = paginate(request, items)
     footprints = {f.cargo_id: f for f in CargoFootprint.objects.filter(cargo_id__in=[c.pk for c in pagination['page']]).order_by('pk')}
     for cargo in pagination['page']:
         cargo.current_footprint = footprints.get(cargo.pk)
-    return page(request, 'cargo.html', section='cargo', q=q, **pagination)
+    sorts = {key: dict(active=sort.lstrip('-') == key and field is not None, descending=sort == f'-{key}',
+                       next=key if sort == f'-{key}' else f'-{key}') for key in columns}
+    return page(request, 'cargo.html', section='cargo', q=q, sort=sort if field else '', sorts=sorts, **pagination)
+
+
+@require_roles('viewer', 'operator', 'admin')
+@require_http_methods(['GET'])
+def cargo_history(request, pk):
+    cargo = get_object_or_404(Cargo, pk=pk)
+    return page(request, 'cargo_history.html', section='cargo', cargo=cargo, **build_history(cargo))
+
+
+@require_roles('viewer', 'operator', 'admin')
+@require_http_methods(['GET'])
+def order_timeline(request, pk):
+    order = get_object_or_404(Order.objects.select_related('cargo'), pk=pk)
+    return page(request, 'order_timeline.html', section='cargo', order=order, **build_timeline(order))
 
 
 @require_roles('viewer', 'operator', 'admin')
@@ -134,7 +167,7 @@ def cargo_footprint(request, pk):
         from django.core.exceptions import PermissionDenied
         raise PermissionDenied
     current_footprint = CargoFootprint.objects.filter(cargo=cargo).order_by('-pk').first()
-    form = forms.FootprintForm(request.POST or None, initial={'length_cells': current_footprint.length_cells if current_footprint else 1})
+    form = forms.FootprintForm(request.POST or None, initial={'length_cells': current_footprint.length_cells if current_footprint else 3})
     if request.method == 'POST' and form.is_valid():
         try:
             services.register_footprint(request.user, cargo_id=pk, **form.cleaned_data)
@@ -158,7 +191,7 @@ def cargo_new(request):
 def order_list(request):
     observation = selected_observation(request)
     q, kind = request.GET.get('q', '')[:200], request.GET.get('kind', '')
-    items = Order.objects.select_related('cargo').filter(Q(cargo__code__icontains=q) | Q(cargo__name__icontains=q)).order_by('priority_group', 'sequence', 'id')
+    items = Order.objects.select_related('cargo').filter(Q(cargo__code__icontains=q) | Q(cargo__name__icontains=q) | Q(title__icontains=q)).order_by('priority_group', 'sequence', 'id')
     if kind in {'INBOUND', 'OUTBOUND'}:
         items = items.filter(kind=kind)
     return page(request, 'requests.html', section='cargo', q=q, kind=kind, review_observation=observation,
@@ -172,7 +205,7 @@ def outbound_queue(request):
     observation = selected_observation(request)
     q = request.GET.get('q', '')[:200]
     items = Order.objects.filter(kind='OUTBOUND').select_related('cargo').filter(
-        Q(cargo__code__icontains=q) | Q(cargo__name__icontains=q) | Q(note__icontains=q)
+        Q(cargo__code__icontains=q) | Q(cargo__name__icontains=q) | Q(note__icontains=q) | Q(title__icontains=q)
     ).order_by('priority_group', 'sequence', 'id')
     pagination = paginate(request, items)
     orders = list(pagination['page'])
@@ -188,8 +221,70 @@ def outbound_queue(request):
         rows.append(dict(order=order, plan=plan, command=command, status_label=label,
             status=command.state if command else 'HOLD' if changes else plan.result['status'] if plan else '',
             reason='원래 실행의 상태와 업무 근거를 대조하세요.' if command else changes[0]['message'] if changes else reason_text(plan.result['reason']) if plan else '관측 재고를 선택해 재취급·반출·복귀를 검토하세요.'))
+    lanes = services.outbound_lanes() if not q else []
+    if lanes:
+        from harbor_web.tier_simulation import tier_recommendations
+        simulated_on = observation or Observation.objects.select_related('condition').order_by('-pk').first()
+        recommendations = tier_recommendations(simulated_on, lanes)
+        for lane in lanes:
+            lane['recommendation'] = recommendations.get(lane['group'])
     return page(request, 'outbound_queue.html', section='outbound', rows=rows, q=q,
-                observation=observation, **pagination)
+                observation=observation, lanes=lanes, **pagination)
+
+
+def parse_entries(members):
+    """Read ``12:3,14:1`` (order id : expected version); an empty string is an empty tier; None when malformed."""
+    orders = []
+    for item in members.split(',') if members else []:
+        order_id, _, version = item.partition(':')
+        if not (order_id.isascii() and order_id.isdigit() and version.isascii() and version.isdigit()):
+            return None
+        orders.append((int(order_id), int(version)))
+    return orders
+
+
+def parse_lanes(values):
+    """Read ``FIXED|12:3,14:1`` lane fields; None when any part is malformed."""
+    lanes = []
+    for value in values:
+        policy, _, members = value.partition('|')
+        if policy not in {'FIXED', 'ANY'}:
+            return None
+        orders = parse_entries(members)
+        if orders is None:
+            return None
+        lanes.append(dict(fixed=policy == 'FIXED', orders=orders))
+    return lanes or None
+
+
+@require_roles('operator')
+@require_http_methods(['POST'])
+def outbound_reorder(request):
+    lanes = parse_lanes(request.POST.getlist('lane'))
+    if lanes is None:
+        return HttpResponseBadRequest('반출 순서 형식이 올바르지 않습니다.')
+    try:
+        changed = services.reorder_outbound(request.user, lanes=lanes)
+    except (services.Conflict, ValidationError):
+        return render(request, 'error.html', dict(heading='반출 대기열이 바뀌었습니다', reason='편집하는 동안 다른 변경이 있었습니다. 최신 순서를 다시 불러와 편집하세요.', return_url='/outbound/'), status=409)
+    messages.success(request, f'반출 순서를 저장했습니다. 순서가 바뀐 요청 {len(changed)}건은 새 revision이 되어 계획을 다시 검토해야 합니다.' if changed else '바뀐 순서가 없습니다.')
+    return redirect('/outbound/')
+
+
+@require_roles('operator')
+@require_http_methods(['POST'])
+def outbound_tier_apply(request):
+    """Fix one tier to a simulated scenario's order (추천 순서로 시행 / 이 시나리오로 교체)."""
+    group, orders = request.POST.get('group', ''), parse_entries(request.POST.get('order', ''))
+    if group not in {'1', '2', '3'} or not orders:
+        return HttpResponseBadRequest('적용할 순서 형식이 올바르지 않습니다.')
+    try:
+        changed = services.apply_tier_order(request.user, group=int(group), orders=orders)
+    except (services.Conflict, ValidationError):
+        return render(request, 'error.html', dict(heading='반출 대기열이 바뀌었습니다', reason='시나리오를 계산한 뒤 대기열이 바뀌었습니다. 다시 불러와 최신 추천을 확인하세요.', return_url='/outbound/'), status=409)
+    name = dict(services.TIERS)[int(group)]
+    messages.success(request, f'{name} 단계를 고른 순서로 정했습니다. 순서가 바뀐 요청 {len(changed)}건은 계획을 다시 검토합니다.' if changed else f'{name} 단계가 이미 이 순서입니다.')
+    return redirect('/outbound/#queue-editor')
 
 
 @require_roles('operator')
@@ -202,7 +297,27 @@ def order_new(request):
             raise Http404('Invalid cargo.')
         initial['cargo'] = get_object_or_404(Cargo, pk=request.GET['cargo'])
     suffix = f'?observation={observation.pk}' if observation else ''
-    return form_page(request, form_type=forms.OrderForm, title='업무 요청 등록', section='cargo', description='업무 지시와 우선순위를 저장합니다. 요청 등록으로 실제 화물 위치가 바뀌지 않습니다.', save=lambda data: services.create_order(request.user, **data), destination=lambda obj: f'/requests/{obj.pk}/{suffix}', initial=initial)
+    form = forms.OrderForm(request.POST or None, initial=initial)
+    if request.method == 'POST' and form.is_valid():
+        data = dict(form.cleaned_data)
+        make_first = data.pop('make_first')
+        if data.get('sequence') is None:  # last in its tier unless a script sends a sequence
+            data['priority_group'], data['sequence'] = services.back_of_tier(data['priority_group'], data['kind'])
+        try:
+            with transaction.atomic():
+                obj = services.create_order(request.user, **data)
+                if make_first and obj.kind == 'OUTBOUND':
+                    services.move_outbound_to_front(request.user, obj)
+        except ValidationError as error:
+            form_error(form, error)
+        except services.Conflict:
+            return render(request, 'error.html', dict(heading='기준이 변경되었습니다', reason='입력할 때와 현재 원본이 다릅니다. 최신 자료를 다시 확인하세요.', return_url=request.path), status=409)
+        else:
+            messages.success(request, '저장했습니다. 원래 자료와 변경 기록을 확인할 수 있습니다.')
+            return redirect(f'/requests/{obj.pk}/{suffix}')
+    return page(request, 'order_form.html', section='cargo', form=form, title='업무 요청 등록',
+                description='업무 지시와 우선순위를 저장합니다. 요청 등록으로 실제 화물 위치가 바뀌지 않습니다.',
+                lanes=services.outbound_lanes())
 
 
 @require_roles('viewer', 'operator', 'admin')
@@ -211,7 +326,7 @@ def order_detail(request, pk):
     order = get_object_or_404(Order.objects.select_related('cargo'), pk=pk)
     observation = selected_observation(request, default_latest=True)
     suffix = f'?observation={observation.pk}' if observation else ''
-    priority = forms.PriorityForm(initial=dict(expected_version=order.version, priority_group=order.priority_group, sequence=order.sequence, tie_policy=order.tie_policy, note=order.note))
+    priority = forms.PriorityForm(initial=dict(expected_version=order.version, title=order.title, priority_group=order.priority_group, sequence=order.sequence, tie_policy=order.tie_policy, note=order.note))
     plan_form = forms.PlanForm(initial={'expected_version': order.version, 'observation': observation}, review_observation=observation)
     if request.method == 'POST':
         if not has_role(request.user, 'operator'):
@@ -227,7 +342,13 @@ def order_detail(request, pk):
         if active.is_valid():
             try:
                 if action == 'priority':
-                    services.update_order(request.user, order_id=pk, **active.cleaned_data)
+                    data = dict(active.cleaned_data)
+                    if 'title' not in request.POST:  # older clients without the field keep the title
+                        data['title'] = None
+                    if data.get('sequence') is None:  # same tier keeps its place; a new tier puts it last
+                        data['sequence'] = order.sequence if data['priority_group'] == order.priority_group else \
+                            services.back_of_tier(data['priority_group'], order.kind)[1]
+                    services.update_order(request.user, order_id=pk, **data)
                 else:
                     data = active.cleaned_data
                     plan = services.make_plan(request.user, order_id=pk, expected_version=data['expected_version'], observation_id=data['observation'].pk, automatic=data['automatic'])

@@ -1,7 +1,7 @@
 """Convert validated Fleet ARM, Cell and TRIP facts into Harbor execution snapshots."""
 from dataclasses import dataclass
 from urllib.error import HTTPError
-from harbor.fleet_contract import validate_arm_job, validate_arm_receipt, validate_trip_job
+from harbor.fleet_contract import validate_arm_job, validate_arm_receipt, validate_trip_job, validate_trip_proposal
 from harbor.model import identifier
 
 
@@ -29,7 +29,7 @@ def validate_arm_execution(binding, request_key, job, receipt, *, mission_id=Non
 
 @dataclass(frozen=True)
 class ExecutionSnapshot:
-    mission_id: str
+    mission_id: str | None  # None while a trip proposal awaits another operator's approval
     request_key: str
     phase: str
     job: dict
@@ -143,3 +143,22 @@ def arm_execution_view(client, binding, request_key, mission_id):
     except OSError:
         fleet = {'status': 'UNAVAILABLE'}
     return fleet, receipt_view
+
+
+def read_trip_proposal_execution(client, intent):
+    """Proposal path (D-908): PROPOSED is a waiting snapshot; ADMITTED must be the same job Fleet created."""
+    proposal = dict(validate_trip_proposal(intent, client.trip_proposal_request(intent.request_key)['proposal'],
+                                           getattr(client, 'expected_principal', None)))
+    if proposal['mission_id'] is None:
+        return ExecutionSnapshot(None, intent.request_key, execution_phase(proposal), proposal)
+    execution = read_trip_execution(client, intent)
+    if execution.mission_id != proposal['mission_id']:
+        raise ValueError('Admitted proposal and trip job identify different executions')
+    return execution
+
+
+def submit_trip_proposal_execution(client, intent):
+    sent = client.trip_propose(intent.candidates, intent.steps, request_key=intent.request_key,
+                               object_ref=intent.object_ref or None)['proposal']
+    validate_trip_proposal(intent, sent, getattr(client, 'expected_principal', None))
+    return read_trip_proposal_execution(client, intent)

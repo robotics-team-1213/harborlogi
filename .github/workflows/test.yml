@@ -1,12 +1,18 @@
 name: test
 
+# PRs are tested on their merge result; main is tested again after each merge, which also feeds mirror-to-course.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
@@ -15,6 +21,7 @@ defaults:
 jobs:
   unittest:
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -24,10 +31,15 @@ jobs:
       - uses: actions/setup-python@e797f83bcb11b83ae66e0230d6156d7c80228e7c # v6.0.0
         with:
           python-version: ${{ matrix.python }}
+      # Django renders a leftover marker as page text, so the test suites stay green with one committed.
+      - name: No merge conflict markers
+        run: |
+          ! git grep -nE '^(<<<<<<<|>>>>>>>)( |$)' -- ':/'
       - run: python -m unittest discover -s tests -v
 
   product-web:
     runs-on: ubuntu-22.04
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -44,5 +56,23 @@ jobs:
       - run: python -m pip install '.[web]'
       - run: python -m django test harbor_web.tests --settings=harbor_web.settings --verbosity 1
       - run: python -m django makemigrations --check --dry-run --settings=harbor_web.settings
-      - run: node tests/map-editor.test.mjs && node tests/yard-model.test.mjs && node tests/yard-draft.test.mjs && node tests/yard-selection.test.mjs
+      - run: for t in tests/*.test.mjs; do node "$t" || exit 1; done
       - run: python tools/design_tokens.py --check
+
+  # publish-image.yml pushes what this proves still builds (deploy/compose/README.md).
+  compose-image:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      HARBOR_CONFIG_DIR: /tmp
+      HARBOR_TLS_DIR: /tmp
+      HARBOR_HOSTNAME: ci.invalid
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - name: Compose file resolves
+        run: HARBOR_ENV_FILE="$PWD/deploy/compose/harbor.env.example" docker compose -f deploy/compose/compose.yaml --profile setup config --quiet
+      - name: Image builds and imports the app
+        run: |
+          export HARBOR_ENV_FILE="$PWD/deploy/compose/harbor.env.example"
+          docker compose -f deploy/compose/compose.yaml build harbor
+          docker run --rm harborlogi:local python -c "import harbor_web.manage"

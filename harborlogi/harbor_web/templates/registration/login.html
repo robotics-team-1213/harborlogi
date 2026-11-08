@@ -1,4 +1,6 @@
 {% extends 'base.html' %}{% block title %}로그인{% endblock %}{% block content %}
 <section class="login-panel"><h1>HarborLogi에 로그인</h1><p class="lede">업무 계획과 현장 확인을 이어갑니다.<br>발급받은 팀 계정으로 로그인하세요.</p>
+{% if rosy_account %}<p><a class="button" href="{% url 'rosy_account_start' %}{% if next %}?next={{ next|urlencode }}{% endif %}">Rosy 계정으로 로그인</a></p>
+<p class="muted">팀 계정 관리자가 준 Rosy 계정을 씁니다. 아래 Harbor 계정은 복구용입니다.</p>{% endif %}
 <form method="post">{% csrf_token %}{{ form.as_div }}<input type="hidden" name="next" value="{{ next }}"><button type="submit">로그인</button></form>
 <p class="muted">계정 발급·비밀번호 초기화는 팀 계정 관리자에게 요청하세요.</p></section>{% endblock %}

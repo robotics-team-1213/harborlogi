@@ -11,7 +11,12 @@ def trip_steps(intent):
 
 
 def trip_digest(intent):
-    value = {"candidates": list(intent.candidates), "steps": trip_steps(intent)}
+    """The only place Harbor computes a trip request_digest; same bytes as ROSY (D-908, D-996 at 161957814a).
+
+    object_ref joins the body only when declared; an empty one keeps the original {candidates, steps}.
+    """
+    cargo = {"object_ref": intent.object_ref} if intent.object_ref else {}
+    value = {"candidates": list(intent.candidates), "steps": trip_steps(intent), **cargo}
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
                                     ensure_ascii=True, allow_nan=False).encode()).hexdigest()
 
@@ -53,7 +58,8 @@ def validate_arm_job(binding, job, request_key):
 def validate_arm_receipt(binding, job, receipt):
     if not isinstance(receipt, dict):
         raise ValueError("A physical receipt is required")
-    expected = dict(mission_id=job["mission_id"], workcell_id=binding.workcell_id, instance_id=binding.instance_id,
+    # No instance_id: Fleet may switch to a fallback arm, so the receipt's arm is Fleet's fact (ADR 0029, D3).
+    expected = dict(mission_id=job["mission_id"], workcell_id=binding.workcell_id,
         object_ref=binding.object_ref, source=binding.source_ref, target=binding.target_ref,
         policy_digest=job["resource_policy_digest"], authority_epoch=job["authority_epoch"],
         dispatch_generation=job["dispatch_generation"], physical_status="AT_TARGET_AND_CLEAR")
@@ -92,3 +98,29 @@ def validate_trip_job(intent, job):
             attempt is None or steps[0].get("status") != "GOAL_CONFIRMED"):
         raise ValueError("Fleet transport attempt is not consistent")
     return job
+
+
+def validate_trip_proposal(intent, proposal, principal=None):
+    """Check a D-908 proposal against the saved intent; the proposer may never be its own approver."""
+    if (not isinstance(proposal, dict) or proposal.get("request_key") != intent.request_key
+            or proposal.get("request_digest") != intent.digest
+            or proposal.get("candidate_robot_ids") != list(intent.candidates)
+            or proposal.get("steps") != intent.steps
+            or proposal.get("status") not in {"PROPOSED", "ADMITTED"}
+            or proposal.get("object_ref", intent.object_ref or None) != (intent.object_ref or None)):
+        raise ValueError("Fleet trip proposal does not match the saved intent")
+    proposer = proposal.get("proposal_principal_id")
+    if not isinstance(proposer, str) or not proposer or principal is not None and proposer != principal:
+        raise ValueError("Fleet proposal principal differs")
+    identifier(proposal.get("proposal_id"))
+    admitted = (proposal.get("dispatch_generation"), proposal.get("approved_by"), proposal.get("mission_id"))
+    if proposal["status"] == "PROPOSED":
+        if any(value is not None for value in admitted):
+            raise ValueError("A pending proposal cannot carry admission facts")
+    else:
+        if any(value is None for value in admitted):
+            raise ValueError("An admitted proposal requires its approver, generation and job")
+        if proposal["approved_by"] == proposer:
+            raise ValueError("The proposer cannot approve its own trip")
+        identifier(proposal["mission_id"])
+    return proposal

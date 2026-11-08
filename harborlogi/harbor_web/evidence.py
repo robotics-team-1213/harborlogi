@@ -72,7 +72,6 @@ def _retreat_from_json(data):
             raise ValueError('Expected an arm fact object')
         arm = dict(arm)
         arm['pose_observed_at'] = datetime.fromisoformat(arm['pose_observed_at'])
-        arm['joint_positions'] = tuple(arm['joint_positions'])
         arms.append(ArmRetreat(**arm))
     fields['arms'] = tuple(arms)
     return RetreatEvidence(**fields)

@@ -6,16 +6,16 @@
   <p class="route-summary">분리 화물 {{ explanation.rehandle_count }}개 → 대상 반출 {{ explanation.outbound_count }}회 → 재적재 {{ explanation.restore_count }}회 <span>· 계획 이동 {{ explanation.move_count }}회</span></p>
   <p class="muted">목표 화물에 앞서 옮길 화물과 반출 뒤의 재적재 위치를 확인하세요. 다칸 화물도 개체 전체로 옮깁니다.</p>
   {% else %}<p>입고 배치 추천 · 계획 이동 {{ explanation.move_count }}회</p>{% endif %}
+  {% if explanation.routes %}<div class="actions"><button type="button" class="route-sequence-play" data-plan-sequence hidden>배치에서 전체 순서 보기</button><span class="helptext">관측 배치부터 마지막 단계까지 차례로 재생합니다.</span></div>{% endif %}
   <div class="cargo-routes">
   {% for route in explanation.routes %}
     <article class="cargo-route">
       <h3>{{ route.cargo_id }} · {{ route.role }}</h3>
-      <a href="#yard" class="cargo-route-view" data-plan-cargo="{{ route.cargo_id }}" data-plan-kind="{{ route.kind }}">배치에서 {{ route.cargo_id }} 보기</a>
       {% if route.kind == 'intake-recommendation' %}<p>추천 위치: {{ route.route_label }}</p>{% if not route.observed_source %}<p class="muted">관측된 출발 위치 없음 · 픽업 이동을 생성하지 않은 배치 추천입니다.</p>{% endif %}
       {% else %}<p>{{ route.route_label }}</p>{% endif %}
       {% if route.footprint_revision %}<p class="muted">크기 원본 #{{ route.footprint_revision }}{% if route.shape.length_cells %} · {{ route.shape.length_cells }}칸 화물 1개{% endif %}</p>{% endif %}
       {% if route.steps %}
-      <ol>{% for step in route.steps %}<li>{{ step.number }}단계 · {{ step.phase }} · {{ step.source.label }} → {{ step.destination.label }} · 담당 팔 {{ step.primary_arm|default:'미지정' }}{% if step.alternate_arms %} · 대안 팔 {{ step.alternate_arms|join:', ' }}{% endif %} <button class="quiet route-step-play" type="button" data-plan-step="{{ step.number }}" hidden>{{ step.number }}단계 재생</button></li>{% endfor %}</ol>
+      <ol>{% for step in route.steps %}<li>{{ step.number }}단계 · {{ step.phase }} · {{ step.source.label }} → {{ step.destination.label }} · 담당 팔 {{ step.primary_arm|default:'미지정' }}{% if step.alternate_arms %} · 대안 팔 {{ step.alternate_arms|join:', ' }}{% endif %}</li>{% endfor %}</ol>
       {% endif %}
     </article>
   {% empty %}<p>제안된 이동이 없습니다. 보류된 계획의 부분 작업이나 예상 완료를 표시하지 않습니다.</p>{% endfor %}

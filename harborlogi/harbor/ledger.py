@@ -34,7 +34,15 @@ class ReadOnlyLedger:
             try:
                 return business_row(c, key)
             except ValueError as error:
-                raise KeyError(key) from error
+                # Notification links carry only the opaque outbox id (ROSY D-997); resolve it here.
+                try:
+                    row = c.execute('SELECT request_key FROM hold_outbox WHERE notification_id=?',
+                                    (key,)).fetchone()
+                except sqlite3.OperationalError:  # A ledger predating the outbox has no such table.
+                    row = None
+                if row is None:
+                    raise KeyError(key) from error
+                return business_row(c, row[0])
 
     def tasks(self):
         return self._read()

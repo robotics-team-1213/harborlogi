@@ -75,8 +75,77 @@ def save_connection(actor, *, origin, principal, arm_console_enabled, expected_v
     return profile
 
 
+@serialized
+def set_human_confirmation(actor, *, enabled, expected_version):
+    _role(actor, 'admin')
+    from harbor_web.models import EvidenceProducerSetting
+    current = EvidenceProducerSetting.objects.first()
+    if (current.version if current else 0) != expected_version:
+        raise ValidationError('CONNECTION_CHANGED')
+    with transaction.atomic():
+        row, _ = EvidenceProducerSetting.objects.update_or_create(pk=1, defaults=dict(
+            human_confirmation=bool(enabled), version=expected_version + 1))
+        Audit.objects.create(actor=actor, action='evidence_producer.configure', object_type='EvidenceProducerSetting',
+                             object_id='1', detail=dict(human_confirmation=row.human_confirmation, version=row.version))
+    return row
+
+
 def last_check():
     return Audit.objects.filter(action='fleet.check', detail__fingerprint=fingerprint(connection_settings())).order_by('-pk').first()
+
+
+def _error_code(error):
+    status = error.code
+    try:
+        with error:
+            raw = error.read(4097)
+        detail = json.loads(raw).get('detail', {}) if len(raw) <= 4096 else {}
+        return status, detail.get('code') if isinstance(detail, dict) else None
+    except (OSError, ValueError, TypeError, AttributeError):
+        return status, None
+
+
+def _probe(read, found_code):
+    """MET: Fleet answers a key that cannot exist with its own coded 404. UNMET: route absent or not installed (generic 404, 503)."""
+    try:
+        read()
+    except HTTPError as error:
+        status, code = _error_code(error)
+        return ('MET' if (status, code) == (404, found_code) else
+                'UNMET' if status == 503 or status == 404 and code is None else 'UNKNOWN')
+    except (URLError, TimeoutError, OSError, ValueError, TypeError, AttributeError):
+        return 'UNKNOWN'
+    return 'UNKNOWN'  # a 200 for a key Harbor invented is not the installed-route answer
+
+
+def _platform_signal(client):
+    """The platform's public profile signal -> (arm_live, auto_producer). Anything but a strict answer is UNMET."""
+    try:
+        value = client.execution_profile()
+    except HTTPError as error:
+        state = 'UNMET' if _error_code(error)[0] in {404, 503} else 'UNKNOWN'
+        return state, state
+    except (URLError, TimeoutError, OSError, ValueError, TypeError, AttributeError):
+        return 'UNKNOWN', 'UNKNOWN'
+    # ROSY opens real arms only in device_trial (D-797, D-858 S4); production keeps arms closed for now.
+    production = value.get('profile') in {'production', 'device_trial'}
+    lists = [value.get(key) for key in ('observation_producers', 'evidence_producers')]
+    return (('MET' if production and value.get('arm_execution') == 'physical' else 'UNMET'),
+            'MET' if production and all(isinstance(rows, list) and rows and all(
+                isinstance(row, dict) and row.get('authenticated') is True for row in rows) for rows in lists) else 'UNMET')
+
+
+def probe_conditions(client, result):
+    """Per-condition outcome of read-only GETs on keys that do not exist (ADR0022); nothing is created."""
+    mission, key = 'harbor-probe-' + uuid.uuid4().hex, 'harbor-probe-' + uuid.uuid4().hex
+    reason = result['reason']
+    return dict(
+        session='MET',
+        arm='MET' if result['arm'] == 'READABLE' else 'UNMET' if reason == 'ARM_NOT_INSTALLED' else 'UNKNOWN',
+        evidence=_probe(lambda: client.physical_evidence(mission), 'ARM_TRANSFER_JOB_NOT_FOUND'),
+        recheck=_probe(lambda: client.recheck_read(mission, key), 'ARM_TRANSFER_JOB_NOT_FOUND'),
+        proposal=_probe(lambda: client.trip_proposal_request(key), 'TRIP_PROPOSAL_NOT_FOUND'),
+        **dict(zip(('arm_live', 'auto_producer'), _platform_signal(client))))
 
 
 def check_connection(actor, *, expected_version):
@@ -105,14 +174,7 @@ def check_connection(actor, *, expected_version):
                 client.arm_request('harbor-probe-' + uuid.uuid4().hex)
                 result['reason'] = 'ARM_API_UNCONFIRMED'
         except HTTPError as error:
-            status = error.code
-            try:
-                with error:
-                    raw = error.read(4097)
-                detail = json.loads(raw).get('detail', {}) if len(raw) <= 4096 else {}
-                code = detail.get('code') if isinstance(detail, dict) else None
-            except (OSError, ValueError, TypeError, AttributeError):
-                code = None
+            status, code = _error_code(error)
             if stage == 'arm' and status == 404 and code == 'ARM_TRANSFER_JOB_NOT_FOUND':
                 result.update(status='VERIFIED', arm='READABLE', reason='READ_API_VERIFIED')
             else:
@@ -129,6 +191,8 @@ def check_connection(actor, *, expected_version):
                 'FLEET_TIMEOUT' if isinstance(cause, TimeoutError) else 'FLEET_UNREACHABLE')
         except (ValueError, TypeError, AttributeError):
             result['reason'] = 'INVALID_FLEET_RESPONSE'
+        if result['session'] == 'MATCHED':
+            result['conditions'] = probe_conditions(client, result)
     elif not config['allowed'] and config['origin']:
         result['reason'] = 'ORIGIN_NOT_ALLOWED'
     with queue_lock:

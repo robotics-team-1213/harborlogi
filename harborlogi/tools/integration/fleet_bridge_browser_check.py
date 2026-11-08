@@ -142,6 +142,9 @@ def main():
             def safe_page():
                 assert token not in page.content(), 'Service token leaked into rendered HTML'
 
+            # A matched session also runs the ADR0022 readiness GETs: evidence, recheck, trip proposal, platform signal.
+            READINESS_PROBES = 4
+
             def check(mode, reason, expected_requests):
                 state['mode'] = mode
                 before = len(state['requests'])
@@ -174,7 +177,7 @@ def main():
             assert config['origin'] == profile.origin and config['principal'] == profile.principal and config['token'] == token
             assert not os.environ.get('HARBOR_FLEET_ORIGIN') and not os.environ.get('HARBOR_FLEET_PRINCIPAL')
             result['checks'].append('Admin settings link saves allowlisted profile without Fleet traffic; commands._config consumes its origin and principal with server-only token')
-            check('compatible', 'READ_API_VERIFIED', 2)
+            check('compatible', 'READ_API_VERIFIED', 2 + READINESS_PROBES)
             assert page.get_by_text('조회 연동 확인', exact=True).is_visible()
             check('human-role', 'ROLE_NOT_SUITABLE', 1)
             assert page.get_by_text('연결 확인 필요', exact=True).is_visible()
@@ -184,15 +187,15 @@ def main():
             page.evaluate('scrollTo(0,0)')
             page.screenshot(path=str(output / 'human-role-rejected.png'), full_page=True)
             result['checks'].append('Same principal with human operator role is rejected before ARM traffic; independent human/service authority is explained without sharing credentials')
-            check('generic-404', 'ARM_API_UNCONFIRMED', 2)
+            check('generic-404', 'ARM_API_UNCONFIRMED', 2 + READINESS_PROBES)
             assert page.get_by_text('서비스 신원 확인됨 · API 준비 필요', exact=True).is_visible()
             page.screenshot(path=str(output / 'generic-404-rejected.png'), full_page=True)
             check('mismatch', 'PRINCIPAL_MISMATCH', 1)
             assert page.get_by_text('연결 확인 필요', exact=True).is_visible()
             page.screenshot(path=str(output / 'identity-mismatch-rejected.png'), full_page=True)
-            check('compatible', 'READ_API_VERIFIED', 2)
+            check('compatible', 'READ_API_VERIFIED', 2 + READINESS_PROBES)
             result['checks'].append('Authenticated service session plus coded ARM request-key 404 verifies read API; generic route 404 and principal mismatch fail closed; mismatch never calls ARM')
-            check('not-installed', 'ARM_NOT_INSTALLED', 2)
+            check('not-installed', 'ARM_NOT_INSTALLED', 2 + READINESS_PROBES)
             assert page.get_by_text('서비스 신원 확인됨 · API 준비 필요', exact=True).is_visible()
             assert page.get_by_text('설치 필요', exact=True).is_visible()
             assert page.get_by_text('담당 · ROSY 설치 담당자', exact=True).is_visible()
@@ -205,7 +208,7 @@ def main():
             page.reload()
             page.wait_for_load_state('networkidle')
             assert page.get_by_text(CONNECTION_REASONS['FLEET_DNS_UNRESOLVED'], exact=True).is_visible()
-            assert page.get_by_text('다음 조치', exact=True).is_visible()
+            assert page.get_by_role('heading', name='다음 조치', exact=True).is_visible()
             result['mobile_next_action_y'] = page.get_by_role('heading', name='다음 조치').bounding_box()['y']
             page.screenshot(path=str(output / 'saved-dns-failure-mobile.png'), full_page=True)
             assert result['mobile_next_action_y'] < 844, result['mobile_next_action_y']
@@ -214,7 +217,7 @@ def main():
             assert not page.evaluate('document.documentElement.scrollWidth > innerWidth')
             safe_page()
             result['checks'].append('Real synthetic HTTP503 preserves verified identity and identifies ROSY installation action; saved DNS fixture gives server-side recovery on mobile without network traffic')
-            check('compatible', 'READ_API_VERIFIED', 2)
+            check('compatible', 'READ_API_VERIFIED', 2 + READINESS_PROBES)
             for width, height in ((1440, 1000), (1280, 800), (768, 1024), (390, 844)):
                 page.set_viewport_size(dict(width=width, height=height))
                 page.goto(origin + '/settings/integration/')
@@ -237,7 +240,7 @@ def main():
             assert FleetConnection.objects.get(pk=1).version == 1
             assert not Command.objects.exists()
             assert all(request['method'] == 'GET' and request['authorized'] for request in state['requests'])
-            assert len(state['requests']) == 12
+            assert len(state['requests']) == 12 + 5 * READINESS_PROBES  # five checks reached a matched session
             assert token not in json.dumps(list(Audit.objects.values_list('detail', flat=True)))
             assert not errors, errors
             result['checks'].append('Operator GET/save/check denied; four widths have no overflow; token absent from HTML/audit; all twelve Fleet requests are authenticated GETs; no Harbor Commands or Fleet jobs created')

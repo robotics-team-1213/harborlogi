@@ -1,0 +1,60 @@
+# Harbor beside integrated control R (ADR 0021). Own project, port, volume, TLS and R-issued principal.
+name: harbor
+
+x-harbor: &harbor
+  image: ${HARBOR_IMAGE:-harborlogi:local}
+  build:
+    context: ../..
+    dockerfile: deploy/compose/Dockerfile
+  env_file: ${HARBOR_ENV_FILE:?set HARBOR_ENV_FILE to the env file outside the repository}
+  environment: &harbor-env
+    HARBOR_WEB_MODE: live
+    HARBOR_WEB_DATABASE: /data/web.sqlite3
+    HARBOR_LEDGER_PATH: /data/ledger.sqlite3
+    HARBOR_BINDINGS_PATH: /config/bindings.json
+    HARBOR_WEB_TRUSTED_PROXY: "1"
+  volumes:
+    - harbor-data:/data
+    - ${HARBOR_CONFIG_DIR:?set HARBOR_CONFIG_DIR}:/config:ro
+    - ${HARBOR_BACKUP_DIR:-./backup}:/backup
+
+services:
+  # One-shot admin runs without the executor: `docker compose --profile setup run --rm manage [command]`.
+  # Default is migrate; the server refuses to start before it.
+  manage:
+    <<: *harbor
+    profiles: [setup]
+    command: ["python", "-m", "harbor_web.manage", "migrate", "--noinput"]
+
+  harbor:
+    <<: *harbor
+    environment:
+      <<: *harbor-env
+      HARBOR_EXECUTOR_ENABLED: "1"  # Only the serving process runs the executor, never `manage` runs.
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      - "${HARBOR_HTTPS_PORT:-9443}:443"  # robttt 2026-11-04: 443·8443 rosy-site(R), 8543 CELL-A
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8060), 3).close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  proxy:
+    image: nginx:1.27-alpine
+    network_mode: service:harbor  # Waitress listens on loopback only; share its namespace instead of opening it.
+    depends_on:
+      harbor:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      HARBOR_HOSTNAME: ${HARBOR_HOSTNAME:?set HARBOR_HOSTNAME}
+      HARBOR_HTTPS_PORT: ${HARBOR_HTTPS_PORT:-9443}
+      HARBOR_LISTEN_PORT: ${HARBOR_LISTEN_PORT:-443}
+    volumes:
+      - ./nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${HARBOR_TLS_DIR:?set HARBOR_TLS_DIR}:/etc/harbor-tls:ro
+
+volumes:
+  harbor-data:

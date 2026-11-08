@@ -104,7 +104,7 @@ class RealFleetHttpTests(unittest.TestCase):
             self.assertEqual(current['state'], 'WAITING')
             # Synthetic stand-ins for a camera placement and a platform retreat record (no producer yet).
             def observed(evidence_id, when, *, placement=None, retreat=None, arm=None):
-                fact = replace(ArmRetreat('A', 'synthetic-zone', True, (0.0,), when, 1, True), **(arm or {}))
+                fact = replace(ArmRetreat('A', 'synthetic-zone', True, when, 1, True), **(arm or {}))
                 return MoveEvidence(
                     replace(PlacementEvidence(evidence_id + '-placement', mission, current['attempt_id'], 7,
                                               'synthetic-camera', when, self.binding.cargo_id,

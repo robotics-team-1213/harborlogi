@@ -1,8 +1,9 @@
 <div class="table-wrap"><table><thead><tr><th scope="col">지시 항목</th><th scope="col">변경 전</th><th scope="col">변경 후</th></tr></thead><tbody>
 <tr><td>요청 revision</td><td>{{ before.version|default:'최초 등록' }}</td><td>v{{ after.version }}</td></tr>
 <tr><td>화물 ID</td><td>{{ before.cargo_code|default:'—' }}</td><td>{{ after.cargo_code }}</td></tr>
-<tr><td>우선순위 그룹</td><td>{{ before.priority_group|default:'—' }}</td><td>{{ after.priority_group }}</td></tr>
-<tr><td>그룹 안 순서</td><td>{{ before.sequence|default:'—' }}</td><td>{{ after.sequence }}</td></tr>
+<tr><td>우선순위 단계</td><td>{% if before.priority_group == 1 %}긴급{% elif before.priority_group == 2 %}우선{% elif before.priority_group %}일반{% if before.priority_group > 3 %}({{ before.priority_group }}){% endif %}{% else %}—{% endif %}</td><td>{% if after.priority_group == 1 %}긴급{% elif after.priority_group == 2 %}우선{% else %}일반{% if after.priority_group > 3 %}({{ after.priority_group }}){% endif %}{% endif %}</td></tr>
+<tr><td>단계 안 순서</td><td>{{ before.sequence|default:'—' }}</td><td>{{ after.sequence }}</td></tr>
 <tr><td>동순위 처리</td><td>{% if before.tie_policy == 'FIXED' %}순서 고정{% elif before.tie_policy == 'ANY' %}선택 허용{% else %}—{% endif %}</td><td>{% if after.tie_policy == 'FIXED' %}순서 고정{% else %}선택 허용{% endif %}</td></tr>
+<tr><td>요청 제목</td><td>{{ before.title|default:'없음' }}</td><td>{{ after.title|default:'없음' }}</td></tr>
 <tr><td>요청 메모</td><td>{{ before.note|default:'없음' }}</td><td>{{ after.note|default:'없음' }}</td></tr>
 </tbody></table></div>

@@ -119,6 +119,19 @@ def main():
                 assert not page.evaluate('document.documentElement.scrollWidth > innerWidth'), ('horizontal overflow', page.url)
                 page.screenshot(path=str(output / filename), full_page=True)
 
+            def plan_flat(page):
+                figure = page.locator('[data-yard-3d][data-ready="true"]')
+                figure.wait_for()
+                page.locator('[data-scene-animate]').uncheck()
+                grid = page.locator('[data-yard-linked-flat]')
+                switch = page.locator('[data-yard-view="flat"]')
+                if page.viewport_size['width'] >= 1200:
+                    assert switch.is_hidden() and figure.is_visible() and grid.is_visible()
+                else:
+                    switch.click()
+                    assert figure.is_hidden() and grid.is_visible()
+                return grid
+
             page = browser.new_page(viewport={'width': 1440, 'height': 1000})
             login(page, 'operator')
             visit(page, '/cargo/new/')
@@ -145,29 +158,31 @@ def main():
             assert page.locator('.transfer-list > li').count() == 3
             assert page.locator('[data-yard-stage]').count() == 4
             assert all(page.locator('.transfer-list > li').nth(i).locator('.move-arm').inner_text().strip() for i in range(3))
-            page.locator('[data-yard-view="flat"]').click()
+            grid = plan_flat(page)
             page.locator('[data-yard-stage="3"]').focus()
             page.keyboard.press('Enter')
             assert page.locator('[data-yard-stage="3"]').get_attribute('aria-pressed') == 'true'
-            assert page.locator('[data-yard-panel="3"]').is_visible()
-            assert page.locator('[data-yard-panel="0"]').is_hidden()
-            assert page.locator('[data-yard-panel="3"] .outbound-zone .cargo-cell.target strong').inner_text() == 'C1'
-            assert page.locator('[data-yard-panel="3"] [data-yard-layer="1"] [data-grid-bay="Y11"] [data-grid-cargo]').inner_text() == 'C2'
-            assert page.locator('[data-yard-panel="3"] [data-yard-layer="1"] .grid-cell').count() == 9
-            assert '예상 배치' in page.locator('[data-yard-status]').inner_text()
-            page.locator('[data-yard-panel="3"] [data-yard-level="2"]').focus()
+            assert grid.get_attribute('data-source') == 'predicted'
+            assert grid.locator('[data-grid-area="stand"] [data-cargo-id="C1"]').is_visible()
+            assert grid.locator('[data-grid-area="yard"] [data-cargo-id="C2"]').is_visible()
+            position = json.loads(grid.locator('[data-grid-area="yard"] [data-cargo-id="C2"]').get_attribute('data-selection'))
+            assert [position[key] for key in ('row', 'column', 'level')] == [1, 1, 1], position
+            assert grid.locator('[data-grid-area="yard"] .grid-cell').count() == 9
+            grid.locator('[data-grid-area="yard"] [data-linked-level="2"]').focus()
             page.keyboard.press('Enter')
             page.locator('[data-yard-stage="0"]').click()
-            assert page.locator('[data-yard-panel="0"] [data-yard-layer="2"]').is_visible()
-            assert page.locator('[data-yard-panel="0"] [data-yard-layer="2"] [data-grid-bay="Y11"] [data-grid-cargo]').inner_text() == 'C2'
-            page.locator('[data-yard-panel="0"] [data-yard-level="3"]').click()
-            assert page.locator('[data-yard-panel="0"] [data-yard-layer="3"] .grid-cell').count() == 9
-            page.locator('[data-yard-panel="0"] [data-yard-level="1"]').click()
-            assert '저장된 원본' in page.locator('[data-yard-status]').inner_text()
+            assert grid.locator('[data-grid-area="yard"] [data-linked-level="2"]').get_attribute('aria-pressed') == 'true'
+            assert grid.locator('[data-grid-area="yard"] [data-cargo-id="C2"]').is_visible()
+            position = json.loads(grid.locator('[data-grid-area="yard"] [data-cargo-id="C2"]').get_attribute('data-selection'))
+            assert [position[key] for key in ('row', 'column', 'level')] == [1, 1, 2], position
+            grid.locator('[data-grid-area="yard"] [data-linked-level="3"]').click()
+            assert grid.locator('[data-grid-area="yard"] .grid-cell').count() == 9
+            grid.locator('[data-grid-area="yard"] [data-linked-level="1"]').click()
+            assert grid.get_attribute('data-source') == 'original'
             observed.refresh_from_db()
             assert observed.payload['bays'][0]['cargo'] == ['C1', 'C2'] and not Command.objects.exists()
             page.locator('[data-yard-stage="0"]').click()
-            assert page.locator('[data-yard-panel="0"]').is_visible()
+            assert grid.is_visible()
             visit(page, '/outbound/?q=C1')
             assert page.locator('.action-table tbody tr').count() == 1
             page.get_by_role('link', name='야드·계획·근거 확인', exact=True).click()
@@ -268,14 +283,15 @@ def main():
                 assert not viewport.evaluate('document.documentElement.scrollWidth > innerWidth'), (name, 'workspace')
                 capture(viewport, name + '-plan.png')
                 assert viewport.locator('[data-yard-3d]').is_visible()
-                viewport.locator('[data-yard-view="flat"]').click()
-                assert viewport.locator('[data-yard-panel="0"] [data-yard-layer="1"] .grid-cell').count() == 9
-                viewport.locator('[data-yard-panel="0"] [data-yard-level="3"]').click()
+                grid = plan_flat(viewport)
+                assert grid.locator('[data-grid-area="yard"] .grid-cell').count() == 9
+                grid.locator('[data-grid-area="yard"] [data-linked-level="3"]').click()
                 assert not viewport.evaluate('document.documentElement.scrollWidth > innerWidth'), (name, 'grid-level-3')
                 capture(viewport, name + '-layer-3.png')
-                viewport.locator('[data-yard-panel="0"] [data-yard-level="1"]').click()
+                grid.locator('[data-grid-area="yard"] [data-linked-level="1"]').click()
                 viewport.locator('[data-yard-stage="3"]').click()
-                assert viewport.locator('[data-yard-panel="3"]').is_visible()
+                assert grid.get_attribute('data-source') == 'predicted'
+                assert grid.locator('[data-grid-area="stand"] [data-cargo-id="C1"]').is_visible()
                 capture(viewport, name + '-expected.png')
                 viewport.get_by_role('link', name='실행·근거', exact=True).click()
                 assert viewport.locator('#execution-title').is_visible()

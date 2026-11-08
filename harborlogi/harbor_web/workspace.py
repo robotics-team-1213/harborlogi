@@ -7,6 +7,8 @@ from django.utils import timezone
 from harbor_web import commands, forms, services
 from harbor_web.models import Audit, Command, Observation, Plan
 from harbor_web.yard_view import yard_view, spatial_yard_view
+from harbor_web.yard_occupancy import occupancy_map
+from harbor_web.yard_rows import yard_rows
 from harbor_web.yard_scene import present_stage, scene_for
 
 
@@ -54,7 +56,7 @@ def _yard_stages(order, plan, source):
     outbound_index = next((i for i, m in enumerate(moves) if m['cargo_id'] == target), -1)
     display_moves = []
     for i, move in enumerate(moves):
-        phase = '재취급' if i < outbound_index else '반출' if i == outbound_index else '복귀'
+        phase = move.get('phase_label') or ('재취급' if i < outbound_index else '반출' if i == outbound_index else '복귀')
         by_id = {b['bay_id']: b for b in bays}
         display = dict(move, number=i + 1, phase_label=phase,
                        source_level=len(by_id[move['source']]['cargo']), destination_level=len(by_id[move['destination']]['cargo']) + 1)
@@ -140,6 +142,10 @@ def workspace_context(order, plan=None, *, priority_form=None, plan_form=None, r
     if priority_form is None:
         priority_form = forms.PriorityForm(initial=dict(expected_version=order.version, priority_group=order.priority_group,
             sequence=order.sequence, tie_policy=order.tie_policy, note=order.note))
+    occupancy = occupancy_map(stages[0] if stages else None, moves)
+    scene = scene_for(stages)
+    if scene:
+        scene['rehandle'] = occupancy['rehandle_cargo'] if occupancy else []  # Stored-plan cargo; the viewer never recomputes it.
     completion_plan = command.plan if command else plan
     completion_moves = completion_plan.result['moves'] if completion_plan else []
     related_arms = sorted({arm for move in completion_moves for arm in [move['primary_arm'], *move['alternate_arms']]})
@@ -147,7 +153,9 @@ def workspace_context(order, plan=None, *, priority_form=None, plan_form=None, r
     return dict(order=order, plan=plan, plans=plans, command=command, execution=detail,
         pipeline=pipeline_for(order, plan, command, detail), review_observation=review_observation,
         review_differs=bool(plan and review_observation and plan.observation_id != review_observation.pk),
-        source=source, latest_source=latest, yard_stages=stages, yard_scene=scene_for(stages), display_moves=moves,
+        source=source, latest_source=latest, yard_stages=stages, yard_scene=scene, yard_occupancy=occupancy, display_moves=moves,
+        yard_rows=yard_rows(source, targets={order.cargo.code} if order.cargo_id and order.kind == 'OUTBOUND' else (),
+                            rehandles=occupancy['rehandle_cargo'] if occupancy else ()),
         plan_explanation=explain_plan(plan) if plan else None,
         plan_changes=changes, different_execution_plan=different, decision=decision,
         gate=gate, gate_reason=gate_text(gate['reason']), plan_reason=reason_text(plan.result['reason']) if plan else '',

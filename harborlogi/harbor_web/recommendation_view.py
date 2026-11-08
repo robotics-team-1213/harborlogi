@@ -8,10 +8,13 @@ RESTORATION_LABELS = (
     ('same_area_manhattan_distance', '같은 구역 주소 차이 합', '칸'),
     ('final_level_sum', '복귀 층 합계', '층'),
 )
-# Plans saved under v1 keep their own labels; v2 ranks future obstruction first.
+# Saved plans keep their own labels; v2 ranks future obstruction first, v3 adds unknown order (design 32).
 OBJECTIVE_LABELS = {
     'restoration_lex_v1': RESTORATION_LABELS,
     'restoration_lex_v2': (('earlier_outbound_buried', '먼저 나갈 화물 덮음', '건'),) + RESTORATION_LABELS,
+    'restoration_lex_v3': (('earlier_outbound_buried', '먼저 나갈 화물 덮음', '건'),
+                           ('unknown_outbound_order', '순서 모르는 화물 위에 놓음', '건'),
+                           RESTORATION_LABELS[0], ('rotation_count', '복귀 회전', '개체')) + RESTORATION_LABELS[1:],
 }
 
 

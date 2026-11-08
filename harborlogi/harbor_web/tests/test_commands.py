@@ -8,10 +8,10 @@ from unittest.mock import patch
 from harbor_web.tests import test_services as fixtures
 from django.test import TestCase
 from django.test import TransactionTestCase
-from harbor_web import commands
+from harbor_web import commands, services
 from harbor_web.models import Command, CommandFact
 from harbor_web.services import Conflict
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.contrib.auth.models import User
 
 
@@ -91,6 +91,17 @@ class CommandTests(TestCase):
 
     def test_declared_observation_cannot_enable_execution(self):
         self.assertFalse(commands.capability(self.plan('DECLARED'))['enabled'])
+
+    def test_completed_order_refuses_a_new_command(self):
+        plan = self.plan()
+        command = commands.prepare_command(self.operator, plan_id=plan.pk, expected_version=1)
+        Command.objects.filter(pk=command.pk).update(state='COMPLETED')
+        again = services.make_plan(self.operator, order_id=plan.order_id, expected_version=1,
+                                   observation_id=plan.observation_id, now=self.now)
+        self.assertEqual(commands.capability(again)['reason'], 'ORDER_ALREADY_COMPLETED')
+        with self.assertRaises(ValidationError):
+            commands.prepare_command(self.operator, plan_id=again.pk, expected_version=1)
+        self.assertEqual(Command.objects.filter(order_id=plan.order_id).count(), 1)
 
     def test_prepare_idempotent_and_no_ledger_business_yet(self):
         plan = self.plan()

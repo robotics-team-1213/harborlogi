@@ -27,6 +27,15 @@
 <details><summary>설치 담당자용 서버 설정</summary><p>UI에서 선택할 주소는 <code>HARBOR_FLEET_ALLOWED_ORIGINS</code>에 쉼표로 구분합니다. <code>HARBOR_FLEET_ORIGIN</code>을 지정하면 배포 서버가 연결을 고정합니다. 토큰은 화면과 DB에 저장하지 않고 서버에서만 관리합니다.</p>
 <ul>{% for item in server_inputs %}<li>{{ item.label }}: {% if item.present %}설정 있음{% else %}설정 필요{% endif %} · <code>{{ item.variable }}</code></li>{% endfor %}</ul><p>주소·신원은 제출과 결과 대조가 같은 설정을 사용합니다. 원래 실행이 있는 동안 연결 신원을 바꾸지 않습니다.</p></details>
 </section></div>
+<section class="form-panel" aria-labelledby="readiness-heading"><h2 id="readiness-heading">운영 실행 조건 점검표</h2>
+<p class="helptext">모든 조건이 충족되고 점검이 {{ readiness.max_minutes }}분 안일 때만 운영 실행이 열립니다. 시뮬레이션 실행은 별도 경로입니다.</p>
+<p>{% if readiness.checked_at %}점검 시각 {{ readiness.checked_at|date:'Y-m-d H:i:s T' }}{% if readiness.stale %} · <span class="badge HOLD">오래됨 · 다시 점검 필요</span>{% endif %}{% else %}<span class="muted">점검 기록 없음</span>{% endif %}</p>
+<div class="table-wrap"><table><caption>조건별 상태</caption><thead><tr><th scope="col">조건</th><th scope="col">상태</th><th scope="col">소유</th><th scope="col">다음 조치</th></tr></thead><tbody>
+{% for row in readiness.rows %}<tr><td>{{ row.label }}{% if not row.gating %} <span class="helptext">(표시 전용)</span>{% endif %}</td><td><span class="badge {% if row.state == 'MET' %}READY{% else %}HOLD{% endif %}">{% if row.state == 'MET' %}충족{% elif row.state == 'UNMET' %}미충족{% else %}미확인{% endif %}</span></td><td>{{ row.owner }}</td><td>{% if row.state != 'MET' %}{{ row.action }}{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>
+<form method="post" data-command>{% csrf_token %}<input type="hidden" name="action" value="producer"><input type="hidden" name="expected_version" value="{{ producer_setting.version|default:0 }}"><label><input type="checkbox" name="enabled" value="1"{% if producer_setting.human_confirmation %} checked{% endif %}> 사람 확인 생산자 사용(기명 현장 운영자 확인)</label> <button type="submit">설정 저장</button></form>
+<p class="helptext">켜도 현장 확인 권한 사용자가 1명 이상 있어야 충족됩니다. 변경은 감사 기록에 남습니다.</p>
+</section>
 <details><summary>사람의 로그인과 서비스 권한은 어떻게 연결되나요?</summary>
 <dl class="facts"><div><dt>Harbor 사용자</dt><dd>팀 계정으로 업무를 결정합니다. Harbor가 역할과 확정 이력을 관리합니다.</dd></div><div><dt>Harbor 서비스 신원</dt><dd>Fleet이 발급한 전용 service 역할로 API를 호출합니다. 사람의 비밀번호·세션을 전달하지 않습니다.</dd></div><div><dt>Fleet·ROSY</dt><dd>각 요청의 자격·소유 범위와 설치·자원·안전 조건을 검증합니다. Harbor 역할이 Fleet 권한으로 바뀌지 않습니다.</dd></div></dl>
 <p>연결 검사와 실제 API 호출은 같은 서비스 신원·역할을 확인합니다. Fleet 콘솔은 별도로 로그인합니다. 토큰은 링크나 브라우저에 전달하지 않으며, 작업 receipt를 Harbor 업무 완료로 바로 바꾸지 않습니다.</p>
