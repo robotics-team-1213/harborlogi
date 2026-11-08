@@ -16,6 +16,7 @@ from harbor_web.inbound_decision import inbound_progress, projected_snapshot
 from harbor_web.models import Audit, Observation, Plan, RearrangeAuthorization
 from harbor_web.views import page
 from harbor_web.yard_rows import place_label
+from harbor_web.yard_occupancy import AREA_LABELS
 
 PREVIEW_K, PREVIEW_MAX_MOVES = 2, 6  # the defaults of a requested rearrangement (rearrangement.request_rearrangement)
 
@@ -32,7 +33,7 @@ def _preview(observation, progress, now):
             outbound_pending=False, requested=True)  # a preview ranks by the outbound order even while outbound waits
     except ValueError:
         return None
-    labels = {'temp': '임시 장치', 'stand': '반출대'}
+    labels = AREA_LABELS
     return dict(proposal=proposal, record=rearrangement.plan_record(proposal, {}), observation=observation,
                 projected=len(projected.placements) != len(snapshot.placements),
                 moves=[dict(number=i, cargo=m.cargo_id, source=place_label(vars(m.source_placement), labels),

@@ -38,17 +38,29 @@ def decide_placement(actor, *, plan_id, expected_version):
                     recommendation=plan.result['recommendation'], incoming_shape=plan.result.get('incoming_shape')))
 
 
+def decidable(order, plan):
+    """decide_placement accepts only a READY inbound recommendation of the request's current version."""
+    return bool(plan and plan.result.get('plan_kind') == 'inbound-placement' and plan.result.get('status') == 'READY'
+                and plan.order_version == order.version)
+
+
 def inbound_progress():
-    """Waiting inbound requests (no completed handoff) with their latest plan and decision."""
+    """Inbound requests without a completed handoff, with their latest plan and decision.
+
+    `waiting` holds the ones a person can decide now; `undecidable` the ones with no plan or a HOLD plan,
+    which nobody can decide and so must not hold the rearrangement scenario (review of #44).
+    """
     done = set(Command.objects.filter(state='COMPLETED').values_list('order_id', flat=True))
     rows = []
     for order in Order.objects.filter(kind='INBOUND').exclude(pk__in=done).select_related('cargo').order_by('priority_group', 'sequence', 'pk'):
         plan = Plan.objects.filter(order=order).order_by('-pk').first()
         decision = placement_decision(plan) if plan else None
         current = bool(decision and plan.order_version == order.version)
-        rows.append(dict(order=order, plan=plan, decision=decision if current else None))
+        rows.append(dict(order=order, plan=plan, decision=decision if current else None, decidable=decidable(order, plan)))
+    undecided = [row for row in rows if not row['decision']]
     return dict(rows=rows, total=len(rows), decided=sum(1 for row in rows if row['decision']),
-                waiting=[row for row in rows if not row['decision']])
+                waiting=[row for row in undecided if row['decidable']],
+                undecidable=[row for row in undecided if not row['decidable']])
 
 
 def projected_snapshot(snapshot, progress):

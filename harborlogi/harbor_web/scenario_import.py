@@ -14,6 +14,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from harbor_web import services
+from harbor_web.coordination import serialized
 from harbor_web.models import Audit, Cargo, CargoFootprint, Condition, Order
 from harbor_web.order_queue import completed_order_ids
 from harbor_web.xlsx import SheetError, read_xlsx, write_xlsx
@@ -53,7 +54,8 @@ def _table(rows, columns, sheet, errors):
 
 
 def _integer(text, low, high):
-    return int(text) if text.isdigit() and low <= int(text) <= high else None
+    # isascii() too: '²'.isdigit() is True but int('²') raises.
+    return int(text) if text.isascii() and text.isdigit() and low <= int(text) <= high else None
 
 
 def parse_workbook(data):
@@ -87,7 +89,6 @@ def parse_workbook(data):
     for item in layout:
         if item['row'] and item['level'] and item['level'] > 1 and (item['row'], item['level'] - 1) not in slots:
             errors.append(f'「{LAYOUT_SHEET}」 {item["code"]}: {item["row"]}행 {item["level"] - 1}층이 비어 있어 받칠 수 없습니다.')
-    present, inbound = {item['code'] for item in layout}, 0
     for number, row in _table(sheets[EVENT_SHEET], EVENT_COLUMNS, EVENT_SHEET, errors):
         where = f'「{EVENT_SHEET}」 {number}행'
         kind, code, tier = KINDS.get(row['종류']), row['화물 ID'], TIERS.get(row['단계'] or '일반')
@@ -97,20 +98,25 @@ def parse_workbook(data):
             errors.append(f'{where}: 단계는 긴급 · 우선 · 일반입니다.')
         if not code:
             errors.append(f'{where}: 화물 ID가 비어 있습니다.')
-        elif kind == 'INBOUND':
+        events.append(dict(order=_integer(row['순번'], 0, 10 ** 6), kind=kind, code=code, name=row['화물 이름'] or code,
+                           tier=tier, title=row['제목'][:80], row=number))
+    if not events:
+        errors.append(f'「{EVENT_SHEET}」에 이벤트가 없습니다.')
+    events.sort(key=lambda event: (event['order'] is None, event['order'] or 0, event['row']))
+    present, inbound = {item['code'] for item in layout}, 0
+    for event in events:  # presence follows the registration order (순번), not the sheet's row order
+        where, code = f'「{EVENT_SHEET}」 {event["row"]}행', event['code']
+        if not code:
+            continue
+        if event['kind'] == 'INBOUND':
             inbound += 1
             if code in present:
                 errors.append(f'{where}: {code}는 이미 야드에 있어 입고할 수 없습니다.')
             present.add(code)
-        elif kind == 'OUTBOUND' and code not in present:
+        elif event['kind'] == 'OUTBOUND' and code not in present:
             errors.append(f'{where}: {code}는 초기 배치나 앞선 입고에 없어 반출할 수 없습니다.')
-        events.append(dict(order=_integer(row['순번'], 0, 10 ** 6), kind=kind, code=code, name=row['화물 이름'] or code,
-                           tier=tier, title=row['제목'][:80], row=number))
     if inbound > MAX_AUTOMATIC_INBOUND:
         errors.append(f'입고는 시나리오 하나에 {MAX_AUTOMATIC_INBOUND}건까지입니다(자동 계획 한도).')
-    if not events:
-        errors.append(f'「{EVENT_SHEET}」에 이벤트가 없습니다.')
-    events.sort(key=lambda event: (event['order'] is None, event['order'] or 0, event['row']))
     return (None if errors else dict(layout=layout, events=events, digest=hashlib.sha256(data).hexdigest())), errors
 
 
@@ -125,8 +131,13 @@ def _cargo(actor, code, name):
     return cargo
 
 
+@serialized
 def import_scenario(actor, scenario, *, name):
-    """Register the whole scenario in one transaction; returns (observation, orders)."""
+    """Register the whole scenario in one transaction; returns (observation, orders).
+
+    queue_lock first, the SQLite write lock inside it: the same order as every other mutating service, so the
+    "no unfinished request" check and the creation below cannot interleave with another request.
+    """
     if settings.MODE == 'live':
         raise ValidationError('시나리오 등록은 개발 · 시험 환경에서만 엽니다.')
     services._role(actor, 'admin')
@@ -137,6 +148,11 @@ def import_scenario(actor, scenario, *, name):
     codes = {event['code'] for event in scenario['events']}
     if Order.objects.filter(cargo__code__in=codes).exclude(kind='REARRANGE').exclude(pk__in=completed_order_ids()).exists():
         raise ValidationError('이 시나리오의 화물에 아직 끝나지 않은 요청이 있습니다. 새 화물 ID로 시나리오를 만드세요.')
+    inbound = sum(event['kind'] == 'INBOUND' for event in scenario['events'])
+    used = Order.objects.filter(auto_replan=True).count()  # make_plan's site-wide bound counts earlier scenarios too
+    if used + inbound > MAX_AUTOMATIC_INBOUND:
+        raise ValidationError(f'자동 계획 한도 {MAX_AUTOMATIC_INBOUND}건 중 {used}건을 이전 요청이 쓰고 있어 입고 {inbound}건을 더 등록할 수 없습니다. '
+                              '끝난 요청의 자동 계획을 끄고 다시 올리세요.')
     with transaction.atomic():
         placements = []
         for item in scenario['layout']:
@@ -147,7 +163,8 @@ def import_scenario(actor, scenario, *, name):
         now = timezone.now()
         observation = services.record_observation(actor, source_id=f'scenario-{name}'[:96], source_revision=now.isoformat(),
             observed_at=now, provenance='SYNTHETIC', condition=condition,
-            payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp', 'stand'], placements=placements, holdings=[]))
+            payload=dict(schema='grid-placement-v1', observed_areas=[a.area_id for a in services.map_areas(condition.payload)],
+                         placements=placements, holdings=[]))
         orders = []
         for event in scenario['events']:
             cargo = _cargo(actor, event['code'], event['name'])

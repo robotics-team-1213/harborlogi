@@ -1,12 +1,18 @@
 """Scenario workbook import, inbound decisions and the rearrangement scenario (KAN-117 · KAN-118 · KAN-119)."""
+from decimal import Decimal
 import json
 from pathlib import Path
 
 from django.contrib.auth.models import Group, User
 from django.core.files.uploadedfile import SimpleUploadedFile
+from unittest.mock import patch
+
+from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from harbor_web import scenario_import, services
+from harbor_web.coordination import queue_lock
 from harbor_web.inbound_decision import DECIDE_ACTION, inbound_progress
 from harbor_web.models import Audit, Observation, Order, Plan
 from harbor_web.xlsx import SheetError, read_xlsx, write_xlsx
@@ -40,6 +46,24 @@ class WorkbookTests(SimpleTestCase):
             self.assertIn(text, joined)
         _, missing = scenario_import.parse_workbook(write_xlsx({'Sheet1': [['a']]}))
         self.assertIn('「초기 배치」 시트가 없습니다. 양식을 내려받아 쓰세요.', missing)
+
+
+    def test_unicode_digits_are_reported_not_crashed(self):
+        data = workbook([['C1', '', '²', '1']], [['³', '입고', 'N1', '', '일반', '']])
+        scenario, errors = scenario_import.parse_workbook(data)  # '²'.isdigit() is True but int('²') raises
+        self.assertIsNone(scenario)
+        self.assertIn('「초기 배치」 2행: 행과 층은 1~3입니다.', errors)
+
+    def test_outbound_must_follow_its_inbound_in_registration_order(self):
+        # Registration follows 순번, so the "inbound before outbound" check must use 순번, not sheet row order.
+        later_rows_first = workbook([['C1', '', '1', '1']], [['2', '반출', 'N1', '', '우선', ''], ['1', '입고', 'N1', '', '일반', '']])
+        scenario, errors = scenario_import.parse_workbook(later_rows_first)
+        self.assertEqual(errors, [])
+        self.assertEqual([(e['kind'], e['code']) for e in scenario['events']], [('INBOUND', 'N1'), ('OUTBOUND', 'N1')])
+        sheet_order_lies = workbook([['C1', '', '1', '1']], [['2', '입고', 'N1', '', '일반', ''], ['1', '반출', 'N1', '', '우선', '']])
+        scenario, errors = scenario_import.parse_workbook(sheet_order_lies)
+        self.assertIsNone(scenario)
+        self.assertIn('「이벤트」 3행: N1는 초기 배치나 앞선 입고에 없어 반출할 수 없습니다.', errors)
 
 
 class ScenarioFlowTests(TestCase):
@@ -109,3 +133,55 @@ class ScenarioFlowTests(TestCase):
         plan = Plan.objects.filter(order=order).latest('pk')
         self.assertEqual(self.client.post(f'/plans/{plan.pk}/', dict(action='decide', expected_version=order.version + 1)).status_code, 409)
         self.assertFalse(Audit.objects.filter(action=DECIDE_ACTION).exists())
+
+    def _inbound(self, code):
+        cargo = services.register_cargo(self.user, code=code, name=code, weight_kg=Decimal('1.000'), volume_m3=Decimal('0.0120'),
+                                        destination='시험', length_cells=3)
+        group, sequence = services.back_of_tier(3, 'INBOUND')
+        return services.create_order(self.user, cargo=cargo, kind='INBOUND', priority_group=group, sequence=sequence, tie_policy='FIXED')
+
+    def test_undecidable_inbound_does_not_hold_the_rearrangement(self):
+        self.upload(scenario_import.template_workbook())
+        observation = Observation.objects.get()
+        unplanned = self._inbound('U1')  # no plan at all: nothing a person could decide
+        held = self._inbound('H1')  # the latest plan is HOLD: decide_placement accepts READY only
+        Plan.objects.create(order=held, order_version=held.version, observation=observation, condition=observation.condition,
+                            queue_digest='held', result=dict(plan_kind='inbound-placement', status='HOLD', reason='NO_SPACE'),
+                            created_by=self.user)
+        for order in Order.objects.filter(kind='INBOUND', auto_replan=True).order_by('pk'):  # new requests re-planned these
+            plan = Plan.objects.filter(order=order).latest('pk')
+            self.client.post(f'/plans/{plan.pk}/', dict(action='decide', expected_version=order.version))
+        progress = inbound_progress()
+        self.assertEqual(progress['waiting'], [])
+        self.assertEqual([row['order'].pk for row in progress['undecidable']], [unplanned.pk, held.pk])
+        self.assertEqual((progress['decided'], progress['total']), (2, 4))
+        page = self.client.get('/rearrangement/').content.decode()
+        self.assertIn('재배치 시나리오', page)
+        self.assertIn('결정할 수 없는 입고 2건', page)
+
+    def test_import_holds_the_queue_lock_before_opening_its_transaction(self):
+        # Every other mutating service takes queue_lock first and the SQLite write lock inside it; the import
+        # must do the same or two requests can wait on each other ("database is locked").
+        owned_at_atomic, real_atomic = [], transaction.atomic
+        def spy(*args, **kwargs):
+            owned_at_atomic.append(queue_lock._is_owned())
+            return real_atomic(*args, **kwargs)
+        scenario, errors = scenario_import.parse_workbook(scenario_import.template_workbook())
+        self.assertEqual(errors, [])
+        with patch.object(scenario_import.transaction, 'atomic', spy):
+            scenario_import.import_scenario(self.user, scenario, name='S1')
+        self.assertTrue(owned_at_atomic)
+        self.assertTrue(all(owned_at_atomic), owned_at_atomic)
+
+    def test_automatic_planning_budget_is_checked_before_anything_is_created(self):
+        # make_plan allows 16 automatic requests per site and earlier scenarios keep theirs, so a later import
+        # must fail up front with the reason instead of rolling back half-way with make_plan's message.
+        for i in range(15):
+            self._inbound(f'A{i}')
+        Order.objects.update(auto_replan=True)
+        scenario, _ = scenario_import.parse_workbook(scenario_import.template_workbook())  # 2 inbound
+        with self.assertRaises(ValidationError) as caught:
+            scenario_import.import_scenario(self.user, scenario, name='S2')
+        self.assertIn('자동 계획 한도 16건 중 15건을 이전 요청이 쓰고 있어 입고 2건을 더 등록할 수 없습니다.', caught.exception.messages[0])
+        self.assertFalse(Observation.objects.exists())
+        self.assertFalse(Order.objects.filter(cargo__code='N1').exists())
