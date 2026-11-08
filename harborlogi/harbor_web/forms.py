@@ -71,6 +71,13 @@ class OrderForm(forms.ModelForm):
         self.fields['kind'].choices = [('INBOUND', '입고'), ('OUTBOUND', '반출')]
         self.fields['tie_policy'].choices = [('FIXED', '순서 고정'), ('ANY', '같은 단계 안에서 선택 허용')]
 
+    def clean(self):
+        data = super().clean()
+        # The DB check constraint is the backstop; this gives the user a plain field error first.
+        if data.get('kind') in ('INBOUND', 'OUTBOUND') and not data.get('cargo') and 'cargo' not in self.errors:
+            self.add_error('cargo', '입고·반출 요청은 화물을 선택해야 합니다.')
+        return data
+
 
 class PriorityForm(forms.Form):
     expected_version = forms.IntegerField(widget=forms.HiddenInput)
@@ -81,6 +88,10 @@ class PriorityForm(forms.Form):
                                    widget=FixedOrderCheckbox(), help_text=TIE_POLICY_HELP)
     note = forms.CharField(label='변경 메모', max_length=500, required=False, widget=forms.Textarea(attrs={'rows': 3}))
 
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('auto_id', 'id_priority_%s')  # pages render several forms; ids must stay unique
+        super().__init__(*args, **kwargs)
+
 
 class PlanForm(forms.Form):
     expected_version = forms.IntegerField(widget=forms.HiddenInput)
@@ -90,6 +101,7 @@ class PlanForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         review_observation = kwargs.pop('review_observation', None)
+        kwargs.setdefault('auto_id', 'id_plan_%s')
         super().__init__(*args, **kwargs)
         recent = Observation.objects.order_by('-id').values('pk')[:100]
         selected = Q(pk=review_observation.pk) if review_observation else Q(pk__in=[])
@@ -137,6 +149,10 @@ class ConfirmForm(forms.Form):
     expected_version = forms.IntegerField(widget=forms.HiddenInput)
     observed_at = forms.DateTimeField(label='직접 확인한 시각', widget=forms.DateTimeInput(attrs={'type': 'datetime-local'}, format='%Y-%m-%dT%H:%M'), help_text='현재 시각 기준 5분 이내의 직접 확인만 제출하세요.')
     outcome = forms.ChoiceField(label='확인 결과', choices=[('CLEAR', 'S가 이 차량의 적재면을 비웠음'), ('MISMATCH', '대상 또는 상태가 일치하지 않음'), ('UNABLE', '현재 확인할 수 없음')], widget=forms.RadioSelect)
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('auto_id', 'id_confirm_%s')
+        super().__init__(*args, **kwargs)
 
 
 class MeasurementForm(forms.ModelForm):

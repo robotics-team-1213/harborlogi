@@ -3,6 +3,7 @@ from copy import deepcopy
 
 from harbor_web.models import Plan
 from harbor_web.recommendation_view import explain_optimization
+from harbor_web.yard_occupancy import AREA_LABELS
 from harbor_web.yard_rows import place_label
 
 
@@ -12,7 +13,7 @@ def _location(value):
     location = dict(value)
     if 'area_id' in location:
         # Read by rows like the yard plan: a 1×3 container fills its row, so only a narrower cargo needs its column.
-        label = place_label(location, {'temp': '임시 장치', 'stand': '반출대'})
+        label = place_label(location, AREA_LABELS)
         if location['column'] != 1 or location.get('orientation', 0) != 0:
             label += f" · {location['column']}열" + (f" · {location['orientation']}°" if location.get('orientation', 0) else '')
         location['label'] = label

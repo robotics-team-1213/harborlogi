@@ -188,6 +188,7 @@ class HoldNotificationTests(unittest.TestCase):
             sent = []
             notifier = HoldNotifier(ledger, channels=('ops',),
                                     client=lambda channel, body: sent.append((channel, body)))
+            notifier.settle_interrupted()
             self.assertEqual(notifier.deliver_pending(now=FIXED + timedelta(minutes=5)), [])
             self.assertEqual(sent, [])
             delivery = self.deliveries(ledger)[0]
@@ -202,6 +203,7 @@ class HoldNotificationTests(unittest.TestCase):
             sent = []
             notifier = HoldNotifier(ledger, channels=('ops',),
                                     client=lambda channel, body: sent.append((channel, body)))
+            notifier.settle_interrupted()
             self.assertEqual(notifier.deliver_pending(now=FIXED + timedelta(minutes=5)), ['request#hold-1'])
             self.assertEqual([channel for channel, _ in sent], ['ops'])
             self.assertEqual(sent[0][1]['notification_id'], self.outbox(ledger)[0]['notification_id'])
@@ -214,16 +216,19 @@ class HoldNotificationTests(unittest.TestCase):
             ledger, binding, job = self.prepared(directory)
             ledger.hold('request')
             first = HoldNotifier(ledger, channels=('a',), client=lambda channel, body: None)
+            first.settle_interrupted()
             self.assertEqual(first.deliver_pending(now=FIXED + timedelta(minutes=5)), ['request#hold-1'])
             sent = []
             wider = HoldNotifier(ledger, channels=('a', 'b'),
                                  client=lambda channel, body: sent.append(channel))
+            wider.settle_interrupted()
             self.assertEqual(wider.deliver_pending(now=FIXED + timedelta(minutes=6)), ['request#hold-1'])
             self.assertEqual(sent, ['b'])  # The missing b attempt runs; settled a is not resent.
             ledger.resume_arm('request', self.client(job), now=FIXED)  # HOLD ends afterwards.
             sent.clear()
             after = HoldNotifier(ledger, channels=('a', 'c'),
                                  client=lambda channel, body: sent.append(channel))
+            after.settle_interrupted()
             self.assertEqual(after.deliver_pending(now=FIXED + timedelta(minutes=7)), [])
             self.assertEqual(sent, [])  # a stays final; the late c only settles as rejected.
             states = {d['channel']: d['state'] for d in self.deliveries(ledger)}
@@ -245,6 +250,7 @@ class HoldNotificationTests(unittest.TestCase):
                 sent.append(body['notification_id'])
             sent = []
             notifier = HoldNotifier(ledger, channels=('ops',), client=client)
+            notifier.settle_interrupted()
             self.assertEqual(notifier.deliver_pending(now=FIXED + timedelta(minutes=5)), ['request#hold-1'])
             second = [d for d in self.deliveries(ledger) if d['channel'] == 'ops'
                       and d['occurrence_id'] == 'second#hold-1'][0]
@@ -264,6 +270,7 @@ class HoldNotificationTests(unittest.TestCase):
                 if len(calls) == 1:
                     raise DefiniteDeliveryFailure('refused before the connection')
             notifier = HoldNotifier(ledger, channels=('ops',), client=client)
+            notifier.settle_interrupted()
             start = FIXED + timedelta(minutes=5)
             self.assertEqual(notifier.deliver_pending(now=start), [])
             self.assertEqual(len(calls), 1)
@@ -284,6 +291,7 @@ class HoldNotificationTests(unittest.TestCase):
                 sent.append((channel, body['notification_id']))
             sent = []
             notifier = HoldNotifier(ledger, channels=('a', 'b'), client=client)
+            notifier.settle_interrupted()
             self.assertEqual(notifier.deliver_pending(now=FIXED + timedelta(minutes=5)), ['request#hold-1'])
             states = {d['channel']: d['state'] for d in self.deliveries(ledger)}
             self.assertEqual(states, {'a': 'SENT', 'b': 'UNKNOWN'})
@@ -301,6 +309,7 @@ class HoldNotificationTests(unittest.TestCase):
                 sent.append(body['notification_id'])
                 raise RuntimeError('garbage response')
             notifier = HoldNotifier(ledger, channels=('ops',), client=client)
+            notifier.settle_interrupted()
             self.assertEqual(notifier.deliver_pending(now=FIXED + timedelta(minutes=5)), [])
             self.assertEqual(self.deliveries(ledger)[0]['state'], 'UNKNOWN')
             self.assertEqual(notifier.deliver_pending(now=FIXED + timedelta(minutes=6)), [])
@@ -318,9 +327,10 @@ class HoldNotificationTests(unittest.TestCase):
             notifier = HoldNotifier(ledger, channels=('ops',),
                                     client=lambda channel, body: sent.append(body['notification_id']))
             self.assertEqual(notifier.interrupted(), 1)
-            self.assertEqual(notifier.deliver_pending(now=FIXED + timedelta(minutes=5)), [])
-            self.assertEqual(sent, [])  # SENDING is neither final nor pending: no blind resend.
-            self.assertEqual(notifier.interrupted(), 1)  # Reads and delivery never settle it.
+            with self.assertRaisesRegex(RuntimeError, 'settle_interrupted'):
+                notifier.deliver_pending(now=FIXED + timedelta(minutes=5))  # No settle, no sending.
+            self.assertEqual(sent, [])
+            self.assertEqual(notifier.interrupted(), 1)  # Reads and a refused delivery never settle it.
             notifier.settle_interrupted()  # The delivery loop start closes it explicitly.
             self.assertEqual(notifier.interrupted(), 0)
             delivery = self.deliveries(ledger)[0]
@@ -341,11 +351,34 @@ class HoldNotificationTests(unittest.TestCase):
                              client=lambda c, b: late.append(c)).settle_interrupted()
                 late.append('first-send-done')
             first = HoldNotifier(ledger, channels=('ops',), client=client)
+            first.settle_interrupted()
             self.assertEqual(first.deliver_pending(now=FIXED + timedelta(minutes=5)), [])  # Not claimed.
             delivery = self.deliveries(ledger)[0]
             self.assertEqual(delivery['state'], 'UNKNOWN')
             self.assertIn('Interrupted send', delivery['note'])
             self.assertEqual(late, ['first-send-done'])  # The racing notifier sent nothing either.
+
+    def test_delivery_refuses_until_the_loop_start_settles(self):
+        with TemporaryDirectory() as directory:
+            ledger, binding, job = self.prepared(directory)
+            ledger.hold('request')
+            sent = []
+            notifier = HoldNotifier(ledger, channels=('ops',),
+                                    client=lambda channel, body: sent.append(body['notification_id']))
+            with self.assertRaisesRegex(RuntimeError, 'settle_interrupted'):
+                notifier.deliver_pending(now=FIXED + timedelta(minutes=5))
+            self.assertEqual(sent, [])
+            notifier.settle_interrupted()
+            self.assertEqual(notifier.deliver_pending(now=FIXED + timedelta(minutes=6)), ['request#hold-1'])
+            self.assertEqual(sent, [self.outbox(ledger)[0]['notification_id']])
+
+    def test_notification_ids_are_prefixed_opaque_hex(self):
+        from harbor.hold_notify import is_notification_id, new_notification_id
+        notification = new_notification_id()
+        self.assertTrue(notification.startswith('n'))
+        self.assertTrue(is_notification_id(notification))
+        self.assertFalse(is_notification_id('0' * 32))
+        self.assertFalse(is_notification_id('../work/1'))
 
     def test_expired_occurrence_is_rejected_without_sending(self):
         with TemporaryDirectory() as directory:
@@ -354,6 +387,7 @@ class HoldNotificationTests(unittest.TestCase):
             sent = []
             notifier = HoldNotifier(ledger, channels=('ops',),
                                     client=lambda channel, body: sent.append((channel, body)))
+            notifier.settle_interrupted()
             self.assertEqual(notifier.deliver_pending(now=FIXED + timedelta(minutes=1)), [])
             self.assertEqual(sent, [])
             self.assertEqual(self.deliveries(ledger)[0]['state'], 'REJECTED')

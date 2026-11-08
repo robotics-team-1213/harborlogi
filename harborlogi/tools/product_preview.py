@@ -68,7 +68,7 @@ def main():
             placements.append(dict(cargo_id=code, area_id='yard', row=row, column=column, level=level,
                                    orientation=0, footprint_revision=footprint.pk))
         observation = services.record_observation(user, source_id='synthetic-preview-camera', source_revision=now.isoformat(), observed_at=now, provenance='SYNTHETIC', condition=condition,
-            payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp', 'stand'], placements=placements, holdings=[]))
+            payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp_a', 'temp_b', 'stand'], placements=placements, holdings=[]))
         order = Order.objects.filter(cargo__code='C1', kind='OUTBOUND').first()
         if order is None:
             order = services.create_order(user, cargo=Cargo.objects.get(code='C1'), kind='OUTBOUND', priority_group=2, sequence=1, tie_policy='FIXED', note='변경된 반출 지시를 검토하는 합성 사례')

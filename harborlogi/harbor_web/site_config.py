@@ -8,6 +8,7 @@ from harbor.model import Bay, CargoHolding, YardSnapshot, PortConstraints
 from harbor.layout import YardLayout
 from harbor_web.models import clean_text, Cargo, CargoFootprint
 from harbor_web.service_common import _domain
+from harbor_web.yard_occupancy import AREA_LABELS
 
 
 def constraints(payload, *, _validate_spatial=True):
@@ -133,7 +134,7 @@ def area_presentation(payload):
             result = {'yard': dict(label='장치 야드', x=0, y=0)}
             right, y = areas[0].columns + 1.2, 0
             for area in areas[1:]:
-                result[area.area_id] = dict(label={'temp': '임시 장치', 'stand': '반출대'}.get(area.area_id, area.area_id), x=right, y=y)
+                result[area.area_id] = dict(label=AREA_LABELS.get(area.area_id, area.area_id), x=right, y=y)
                 y += area.rows + 1.2
             return result
         source = payload['area_presentation']

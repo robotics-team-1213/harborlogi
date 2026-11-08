@@ -12,6 +12,7 @@ a target of ROSY D-997, not an existing dependency.
 from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import json
+import re
 import secrets
 from urllib.parse import urlsplit
 
@@ -45,8 +46,13 @@ def occurrence_id(key, sequence):
 
 
 def new_notification_id():
-    """Opaque public id for one HOLD occurrence; the raw business key never leaves the ledger."""
-    return secrets.token_hex(16)
+    """Opaque public id for one HOLD occurrence; the raw business key never leaves the ledger.
+    The 'n' prefix keeps the id off numeric screen routes (/work/<command pk>/)."""
+    return 'n' + secrets.token_hex(16)
+
+
+def is_notification_id(value):
+    return isinstance(value, str) and re.fullmatch(r'n[0-9a-f]{32}', value) is not None
 
 
 def validated_screen_base(value):
@@ -130,6 +136,7 @@ class HoldNotifier:
             raise ValueError("Duplicate receiving channel")
         if self.client is not None and not self.channels:
             raise ValueError("A delivery client needs at least one approved receiving channel")
+        self._settled = False
 
     def settle_interrupted(self):
         """Call once when the delivery loop starts: a leftover SENDING row means the send's
@@ -138,6 +145,7 @@ class HoldNotifier:
             c.execute("BEGIN IMMEDIATE")
             c.execute("UPDATE hold_delivery SET state='UNKNOWN',note=? WHERE state='SENDING'",
                       ("Interrupted send left the submission unclear",))
+        self._settled = True
 
     def interrupted(self):
         """In-flight rows another start left behind; visible only, never auto-resent."""
@@ -160,6 +168,9 @@ class HoldNotifier:
         aware_time(now)
         if not self.channels or self.client is None:
             return []  # External sending is off by default; the local HOLD and outbox stay untouched.
+        if not self._settled:
+            # Forgetting the one-time settle would leave interrupted sends pending forever.
+            raise RuntimeError("Call settle_interrupted() once before the first delivery pass")
         sent = []
         for occurrence in self._waiting(now):
             for channel in self.channels:
