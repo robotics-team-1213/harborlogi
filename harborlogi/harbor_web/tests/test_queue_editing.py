@@ -1,6 +1,7 @@
 """Outbound queue in three priority tiers, request titles and first-place registration (KAN-115 · KAN-116)."""
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 from django.contrib.auth.models import Group, User
 from django.core.exceptions import PermissionDenied
@@ -67,7 +68,7 @@ class QueueEditingTests(TestCase):
     def test_swap_inside_one_lane_leaves_other_lanes_alone_across_a_gap(self):
         a, closed, c, d = self.order('A', 1, 1), self.order('X', 2, 1), self.order('C', 3, 1), self.order('D', 3, 2)
         with self.closing(closed):
-            services.reorder_outbound(self.operator, lanes=[dict(fixed=True, orders=[(a.pk, 1)]),
+            services.reorder_outbound(self.operator, lanes=[dict(fixed=True, orders=[(a.pk, 1)]), dict(fixed=True, orders=[]),
                                                             dict(fixed=True, orders=[(d.pk, 1), (c.pk, 1)])])
         self.assertEqual(self.lanes(), [(1, 1, 'FIXED', 'A'), (2, 1, 'FIXED', 'X'), (3, 1, 'FIXED', 'D'), (3, 2, 'FIXED', 'C')])
         a.refresh_from_db(); c.refresh_from_db()
@@ -77,31 +78,31 @@ class QueueEditingTests(TestCase):
     def test_saving_an_unchanged_queue_with_a_gap_changes_nothing(self):
         a, closed, c = self.order('A', 1, 1), self.order('X', 2, 1), self.order('C', 3, 1)
         with self.closing(closed):
-            changed = services.reorder_outbound(self.operator, lanes=[dict(fixed=True, orders=[(a.pk, 1)]), dict(fixed=True, orders=[(c.pk, 1)])])
+            changed = services.reorder_outbound(self.operator, lanes=[dict(fixed=True, orders=[(a.pk, 1)]), dict(fixed=True, orders=[]), dict(fixed=True, orders=[(c.pk, 1)])])
         self.assertEqual(changed, [])
         self.assertFalse(Audit.objects.filter(action='order.update').exists())
 
     def test_moved_lanes_still_renumber_above_finished_orders(self):
         a, closed, c = self.order('A', 1, 1), self.order('X', 2, 1), self.order('C', 3, 1)
         with self.closing(closed):
-            services.reorder_outbound(self.operator, lanes=[dict(fixed=True, orders=[(c.pk, 1)]), dict(fixed=True, orders=[(a.pk, 1)])])
-        self.assertEqual(self.lanes(), [(2, 1, 'FIXED', 'X'), (3, 1, 'FIXED', 'C'), (4, 1, 'FIXED', 'A')])
+            services.reorder_outbound(self.operator, lanes=[dict(fixed=True, orders=[(c.pk, 1)]), dict(fixed=True, orders=[(a.pk, 1)]), dict(fixed=True, orders=[])])
+        self.assertEqual(self.lanes(), [(1, 1, 'FIXED', 'C'), (2, 1, 'FIXED', 'X'), (2, 2, 'FIXED', 'A')])
 
     def test_swap_beside_a_finished_order_stays_above_its_sequence(self):
         closed, b, c = self.order('X', 1, 1), self.order('B', 1, 2), self.order('C', 1, 3)
         with self.closing(closed):
-            services.reorder_outbound(self.operator, lanes=[dict(fixed=True, orders=[(c.pk, 1), (b.pk, 1)])])
+            services.reorder_outbound(self.operator, lanes=[dict(fixed=True, orders=[(c.pk, 1), (b.pk, 1)]), dict(fixed=True, orders=[]), dict(fixed=True, orders=[])])
         self.assertEqual(self.lanes(), [(1, 1, 'FIXED', 'X'), (1, 2, 'FIXED', 'C'), (1, 3, 'FIXED', 'B')])
 
-    def test_policy_change_beside_a_finished_order_moves_to_a_new_group(self):
+    def test_policy_change_beside_a_finished_order_stays_above_its_sequence(self):
         closed, b = self.order('X', 1, 1), self.order('B', 1, 2)
         with self.closing(closed):
-            services.reorder_outbound(self.operator, lanes=[dict(fixed=False, orders=[(b.pk, 1)])])
-        self.assertEqual(self.lanes(), [(1, 1, 'FIXED', 'X'), (2, 1, 'ANY', 'B')])
+            services.reorder_outbound(self.operator, lanes=[dict(fixed=False, orders=[(b.pk, 1)]), dict(fixed=True, orders=[]), dict(fixed=True, orders=[])])
+        self.assertEqual(self.lanes(), [(1, 1, 'FIXED', 'X'), (1, 2, 'ANY', 'B')])
 
     def test_any_lane_turning_fixed_gets_distinct_sequences(self):
         a, b = self.order('A', 1, 1, 'ANY'), self.order('B', 1, 1, 'ANY')
-        services.reorder_outbound(self.operator, lanes=[dict(fixed=True, orders=[(a.pk, 1), (b.pk, 1)])])
+        services.reorder_outbound(self.operator, lanes=[dict(fixed=True, orders=[(a.pk, 1), (b.pk, 1)]), dict(fixed=True, orders=[]), dict(fixed=True, orders=[])])
         self.assertEqual(self.lanes(), [(1, 1, 'FIXED', 'A'), (1, 2, 'FIXED', 'B')])
 
     def test_stale_version_is_a_conflict_and_changes_nothing(self):

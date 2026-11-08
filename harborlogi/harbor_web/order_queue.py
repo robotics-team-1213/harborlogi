@@ -107,28 +107,6 @@ def _closed_sequence_top(group):
         pk__in=open_outbound_orders()).aggregate(top=Max('sequence'))['top'] or 0
 
 
-def _kept_lane_targets(lanes, current):
-    """Today's group numbers when lanes still hold today's groups in order; None when they must be renumbered."""
-    groups = {}
-    for order in sorted(current.values(), key=lambda item: (item.priority_group, item.sequence, item.pk)):
-        groups.setdefault(order.priority_group, []).append(order)
-    if [{order_id for order_id, _ in lane['orders']} for lane in lanes] != [{order.pk for order in members} for members in groups.values()]:
-        return None
-    target = {}
-    for lane, (group, members) in zip(lanes, groups.items()):
-        policy = 'FIXED' if lane['fixed'] else 'ANY'
-        closed = Order.objects.filter(kind='OUTBOUND', priority_group=group).exclude(pk__in=current)
-        if closed.exclude(tie_policy=policy).exists():
-            return None  # a group holds one policy, and a finished order's cannot change
-        wanted = [order_id for order_id, _ in lane['orders']]
-        sequences = [order.sequence for order in members]
-        if wanted != [order.pk for order in members] or (policy == 'FIXED' and len(set(sequences)) != len(sequences)):
-            base = closed.aggregate(top=Max('sequence'))['top'] or 0
-            sequences = [base + position + 1 for position in range(len(wanted))]
-        target.update((order_id, (group, sequence, policy)) for order_id, sequence in zip(wanted, sequences))
-    return target
-
-
 @serialized
 @transaction.atomic
 def reorder_outbound(actor, *, lanes):
