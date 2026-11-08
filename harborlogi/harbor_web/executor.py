@@ -104,12 +104,15 @@ def tick(*, evidence=None, now=None, registry=None):
 
 
 def _loop_evidence():
-    """The production provider (P2): intake-backed when opted in, plus the named-person source (ADR 0023)."""
+    """The production provider (P2): intake- or physical-backed when opted in, plus the named-person source (ADR 0023)."""
     providers = []
     try:
         if os.environ.get('HARBOR_EXECUTOR_EVIDENCE') == 'intake':
             from harbor_web.evidence import intake_provider
             providers.append(intake_provider())
+        elif os.environ.get('HARBOR_EXECUTOR_EVIDENCE') == 'physical':
+            from harbor_web.evidence import physical_provider
+            providers.append(physical_provider())
         from harbor_web.human_evidence import human_provider
         providers.append(human_provider())  # Gated per call by the admin switch.
     except Exception:

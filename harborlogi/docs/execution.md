@@ -2,13 +2,7 @@
 
 ## 원본 물리 근거 provider (D-915)
 
-`HARBOR_EXECUTOR_EVIDENCE=physical`은 기존 실행기에 원본 Fleet closure 증거를 읽는 provider를 선택한다. 기본값은 꺼짐이다. 서버 환경의 `HARBOR_PLACEMENT_SOURCES`와 `HARBOR_RETREAT_SOURCES`에는 서로 다른 설치 출처를 각각 하나씩 지정하고, `HARBOR_PHYSICAL_EVIDENCE`에는 다음 형태의 JSON을 둔다. 실제 설치의 policy digest와 A/B owner, zone, 측정 관절 순서로 교체해야 한다.
-
-```json
-{"policy_digest":"<installed-policy-sha256>","arms":[{"arm":"A","workcell_id":"cell-a","instance_id":"arm-a","zone_id":"shared-zone","joint_names":["joint1","joint2"]}]}
-```
-
-관련 팔이 둘이면 B도 명시한다. 현재 ARM binding의 owner와 팔 대응이 다르거나 관련 팔 측정이 빠지면 거절한다. 같은 원본 증거를 다시 읽어도 시각·측정 식별자를 새로 만들지 않는다. 원본 capture가 5초보다 오래되거나, receipt와 원문 SHA가 다르거나, 관절 순서·실행 시도가 다르면 단계 확인에 쓰지 않는다. 과거 receipt와 현재 pose 조회를 조합하지 않는다. Harbor에는 observer 토큰을 공급하지 않고 기존 전용 Fleet service 신원을 사용한다.
+`HARBOR_EXECUTOR_EVIDENCE=physical`은 기존 실행기에 원본 Fleet closure 증거를 읽는 provider를 선택한다. 기본값은 꺼짐이다. 서버 환경의 `HARBOR_PLACEMENT_SOURCES`와 `HARBOR_RETREAT_SOURCES`에는 서로 다른 설치 출처를 각각 하나씩 지정한다. 어느 팔이 움직였는지는 Fleet이 고르므로 Harbor는 팔 대응 설정을 두지 않고, 시도에 참여한 팔마다 Fleet의 해제 구역·AT_TARGET_AND_CLEAR 판정·빈 그리퍼를 퇴피 근거로 쓴다. receipt와 원문 SHA가 다르거나 실행 시도가 다르면 단계 확인에 쓰지 않는다. Harbor에는 observer 토큰을 공급하지 않고 기존 전용 Fleet service 신원을 사용한다.
 
 이 provider는 `WAITING`인 현재 ARM 단계에서만 근거를 공급한다. 마지막 이동 확인 뒤 상태는 `AWAITING_FINAL_EVIDENCE`이며 `final` 요청에는 근거를 반환하지 않는다. `finish()`에는 별도 최종 업무 근거가 필요하다. 운영 producer·실제 Gazebo 시계 변환·실물 수용은 아직 검증하지 않았다.
 

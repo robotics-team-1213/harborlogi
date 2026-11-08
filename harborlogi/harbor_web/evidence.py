@@ -8,8 +8,6 @@ this module is the intake store and adapter, never a producer and never an autho
 only the BusinessLedger's own binding rules turn a submission into business progress.
 """
 from datetime import datetime, timedelta
-import json
-from pathlib import Path
 from harbor.ledger import ReadOnlyLedger
 import os
 
@@ -145,22 +143,12 @@ def intake_provider():
 
 def physical_provider():
     """Read original Fleet closure facts for a current step; final evidence stays separate."""
-    from harbor.physical_evidence import PhysicalEvidenceAdapter, RetreatBinding
+    from harbor.physical_evidence import fleet_move_evidence
     from harbor.process import ArmTransferBinding
     sources = configured_sources()
     if sources is None or any(len(group) != 1 for group in sources):
         raise ValueError('Physical evidence requires one installed placement and retreat source')
-    raw = os.environ.get('HARBOR_PHYSICAL_EVIDENCE', '')
-    if not raw or len(raw) > 8192:
-        raise ValueError('Physical evidence correspondence is not configured')
-    config = json.loads(raw)
-    if (not isinstance(config, dict) or set(config) != {'policy_digest', 'arms'}
-            or not isinstance(config['arms'], list) or not 1 <= len(config['arms']) <= 2
-            or any(not isinstance(arm, dict) or not isinstance(arm.get('joint_names'), list)
-                   for arm in config['arms'])):
-        raise ValueError('Expected the closed installed physical evidence correspondence')
-    arms = tuple(RetreatBinding(**{**arm, 'joint_names': tuple(arm['joint_names'])}) for arm in config['arms'])
-    adapter = PhysicalEvidenceAdapter(sources[0][0], sources[1][0], config['policy_digest'], arms)
+    placement_source, retreat_source = sources[0][0], sources[1][0]
 
     def evidence(command, row, payload, phase):
         if phase == 'final':
@@ -173,8 +161,7 @@ def physical_provider():
             return None
         from harbor_web.commands import acquire_registry
         binding = ArmTransferBinding(**payload['moves'][row['step_index']])
-        return adapter.read(acquire_registry().client, binding,
-            request_key=f"{row['request_key']}:{row['step_index']}", mission_id=row['mission_id'],
-            attempt_id=row['attempt_id'], plan_revision=payload['revision'],
-            required_arms=tuple(payload['move_arms'][row['step_index']]), now=timezone.now())
+        return fleet_move_evidence(acquire_registry().client, binding,
+            f"{row['request_key']}:{row['step_index']}", mission_id=row['mission_id'],
+            revision=payload['revision'], placement_source=placement_source, retreat_source=retreat_source)
     return evidence
