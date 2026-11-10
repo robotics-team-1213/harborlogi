@@ -33,7 +33,7 @@ def main():
     from django.contrib.auth.models import Group
     from django.utils import timezone
     from harbor_web import services
-    from harbor_web.models import Cargo, CargoFootprint, Condition, FieldEpisode, Order
+    from harbor_web.models import Audit, Cargo, CargoFootprint, Condition, FieldEpisode, Order
     from harbor.ownership import WriterLease
     with WriterLease(folder / 'product.sqlite3'):
         call_command('migrate', interactive=False, verbosity=0)
@@ -82,6 +82,22 @@ def main():
             services.assign_episode(user, order_id=inbound.pk, vehicle_id='합성 차량 P1', assigned_to=user)
         order.refresh_from_db()  # plan last, so the plan matches the queue it is shown with
         services.make_plan(user, order_id=order.pk, expected_version=order.version, observation_id=observation.pk)
+        if os.environ.get('HARBOR_PREVIEW_SCHEDULE') == '1' and not Audit.objects.filter(
+                action='scenario.import', detail__name='preview-schedule').exists():
+            # ADR 0031: an inbound schedule a few minutes ahead, so the work plan shows expected times and slots.
+            from harbor_web import scenario_import
+            from harbor_web.xlsx import write_xlsx
+            start = timezone.localtime().replace(second=0, microsecond=0)
+            at = lambda minutes: (start + timezone.timedelta(minutes=minutes)).strftime('%Y-%m-%d %H:%M')
+            book = write_xlsx({
+                '초기 배치': [['화물 ID', '화물 이름', '행', '칸', '층', '종류'], ['K1', '긴급 보관 화물', '1', '1', '1', '긴급'],
+                            ['K2', '위에 놓인 일반 화물', '1', '1', '2', '일반'], ['K3', '옆 자리 화물', '2', '2', '1', '우선']],
+                '입고 일정': [['시각', '핑키', '컨테이너', '종류'], [at(5), '1', 'P1', '일반'], [at(5), '1', 'P2', '긴급'],
+                            [at(9), '2', 'P3', '우선'], [at(35), '1', 'P4', '일반'], [at(35), '1', 'P5', '일반']]})
+            scenario, errors = scenario_import.parse_workbook(book, scenario_import.site_dims(condition))
+            if scenario is None:
+                raise SystemExit('Preview schedule refused: ' + ' / '.join(errors))
+            scenario_import.import_scenario(user, scenario, name='preview-schedule')
     print('Product preview: http://127.0.0.1:8060/ · synthetic data; Fleet disconnected.', flush=True)
     print('Private access file: runs/product-preview/access.json (do not publish).', flush=True)
     return subprocess.call([sys.executable, '-m', 'harbor_web', '--port', '8060'], cwd=root, env=os.environ)
