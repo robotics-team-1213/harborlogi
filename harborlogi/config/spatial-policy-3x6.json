@@ -21,10 +21,10 @@
   ],
   "spatial_moves": [["yard", "yard"], ["yard", "temp_a"], ["temp_a", "yard"], ["yard", "temp_b"], ["temp_b", "yard"], ["yard", "stand"]],
   "area_presentation": {
-    "yard": {"label": "장치 야드", "x": 0, "y": 0},
-    "temp_a": {"label": "임시 장치 A", "x": 0, "y": -4.2},
-    "temp_b": {"label": "임시 장치 B", "x": 0, "y": 4.2},
-    "stand": {"label": "반출대", "x": 7.2, "y": 1}
+    "yard": {"label": "장치 야드(배)", "x": 0, "y": 0},
+    "temp_a": {"label": "임시 적재(왼쪽)", "x": 0, "y": -4.2},
+    "temp_b": {"label": "임시 적재(오른쪽)", "x": 0, "y": 4.2},
+    "stand": {"label": "컨베이어(반출)", "x": 7.2, "y": 1}
   },
   "slot_cells": 3
 }

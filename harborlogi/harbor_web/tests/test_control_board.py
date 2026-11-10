@@ -71,7 +71,7 @@ class YardRowsTests(SimpleTestCase):
         self.assertEqual([[a['id'] for a in view[side]] for side in ('left', 'right', 'below')], [['temp_a'], ['temp_b'], ['stand']])
         tray = view['right'][0]
         self.assertEqual([s['label'] for lane in tray['lanes'] for s in lane['slots']], ['1번', '2번', '3번'])
-        self.assertEqual((tray['label'], tray['used'], tray['slots'], tray['cargo']), ('임시 장치 B', 1, 3, ['T1']))
+        self.assertEqual((tray['label'], tray['used'], tray['slots'], tray['cargo']), ('임시 적재(오른쪽)', 1, 3, ['T1']))
         self.assertEqual(view['dimensions'], '3행 × 한 행 2자리 · 3층')
 
     def test_place_label_reads_rows_and_slots(self):
@@ -89,8 +89,8 @@ class YardRowsTests(SimpleTestCase):
         labels, site = place_context(site_policy())
         self.assertEqual((site.size, site.one_slot, site.one_level), (3, {'stand'}, {'temp_a', 'temp_b', 'stand'}))
         self.assertEqual(place_label(dict(area_id='yard', row=1, column=4, level=3), labels, site), '1행 2칸 3층')
-        self.assertEqual(place_label(dict(area_id='temp_a', row=2, column=1, level=1), labels, site), '임시 장치 A 2번')
-        self.assertEqual(place_label(dict(area_id='stand', row=1, column=1, level=1), labels, site), '반출대')
+        self.assertEqual(place_label(dict(area_id='temp_a', row=2, column=1, level=1), labels, site), '임시 적재(왼쪽) 2번')
+        self.assertEqual(place_label(dict(area_id='stand', row=1, column=1, level=1), labels, site), '컨베이어(반출)')
         self.assertEqual(slot_key(dict(area_id='yard', row=3, column=4), site), 'yard-R3S2')
         self.assertEqual(place_context(example_policy())[1], None)
 
@@ -162,15 +162,15 @@ class SiteMapPagesTests(TestCase):
         inventory = response.context['operations']['inventory']
         self.assertEqual((inventory['occupied'], inventory['capacity'], inventory['occupancy_percent']), (4, 18, 22))
         html = response.content.decode()
-        for text in ('장치 야드 4 / 18자리', '임시 장치 A', '임시 장치 B', '반출대', 'site-left', 'site-right',
+        for text in ('장치 야드 4 / 18자리', '장치 야드(배)', '임시 적재(왼쪽)', '임시 적재(오른쪽)', '컨베이어(반출)', 'site-left', 'site-right',
                      'data-yard-row="yard-R1S2"', '<span class="slot-name">2칸</span>', '3행 × 한 행 2자리 · 3층'):
             self.assertIn(text, html)
         for move in self.plan.result['moves']:
             self.assertEqual((move['destination_placement']['column'] - 1) % 3, 0)
         steps = response.context['operations']['workload']['plans'][0]['steps']
         self.assertEqual([(s['phase'], s['source'], s['destination']) for s in steps if s['phase'] == '반출'],
-                         [('반출', '1행 1칸 1층', '반출대')])
-        self.assertNotIn('반출대 1번', html)
+                         [('반출', '1행 1칸 1층', '컨베이어(반출)')])
+        self.assertNotIn('컨베이어(반출) 1번', html)
 
     def test_inventory_lists_slots_without_sizes_or_turns(self):
         response = self.client.get(f'/inventory/?observation={self.observation.pk}')
