@@ -3,6 +3,7 @@ from copy import deepcopy
 
 from harbor_web.models import Plan
 from harbor_web.recommendation_view import explain_optimization
+from harbor_web.yard_occupancy import AREA_LABELS
 from harbor_web.yard_rows import place_context, placement_text, route_text
 
 
@@ -13,7 +14,7 @@ def _location(value, labels=None, slot=None):
     if 'area_id' in location:
         # Read by rows like the yard plan: a 1×3 container fills its row, so only a narrower cargo needs its column.
         # A site with fixed slots names the slot instead ('1행 2칸 1층'); turns and covered cells are fixed there.
-        location['label'] = placement_text(location, labels or {'temp': '임시 장치', 'stand': '반출대'}, slot)
+        location['label'] = placement_text(location, labels or AREA_LABELS, slot)
     else:
         location['label'] = f"{location['bay_id']} · {location['level']}단"
     return location

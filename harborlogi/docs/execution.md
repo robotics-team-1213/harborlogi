@@ -73,9 +73,11 @@ Harbor 서비스 신원은 `POST /api/fleet/trip-jobs`(named operator 전용)를
 
 장부 상태: PLANNED → SUBMITTING → AWAITING_APPROVAL(승인 대기, mission_id 없음) → ACKNOWLEDGED(job 연결). 응답 유실·재시작은 UNCERTAIN이며 `reconcile_proposal(key, client)`가 같은 key로만 조회하고 재전송하지 않는다. 기존 직접 `submit()`은 operator 신원이 `trip()`을 쓸 때만 남겨 두었다(최소 변경, 기존 시험·통합 하네스 유지). 서비스 신원의 앱 경로는 `propose()`다.
 
-**미검증**: 실제 Fleet(v1.329)에 대한 제안→승인→job 시험은 돌리지 않았다. 단위 시험은 가짜 Fleet이며, `tests/integration/transport_http.py`는 아직 제안 경로를 다루지 않는다. 웹은 이송을 제출하지 않는다.
+**미검증**: 실제 Fleet(v1.329)에 대한 제안→승인→job 시험은 돌리지 않았다. 단위 시험은 가짜 Fleet이며, `tests/integration/transport_http.py`는 아직 제안 경로를 다루지 않는다.
 
-`RosyClient.trip_job(id)`와 `trip_request(key)`는 공정 문서 없는 수행 snapshot을 읽는다. 이송 후보·장소만 wire로 보내며 `cargo_id`·recipe·pallet/layer는 새 요청에 넣지 않는다. typed 동작의 추가·도달 사전 검증·중립 팔 동작은 후속 계약이다.
+**웹 반입 이송(ADR 0029).** `HARBOR_TRIP_DESTINATION`(반입 장소 ID)과 `HARBOR_LEDGER_PATH`가 있으면 `prepare_departure`가 출발 의도와 함께 `harbor-trip:<출발 key>` 이송 의도를 PLANNED로 저장하고, 화물 코드를 `object_ref`로 선언해 반입 명단(`IntakeLedger`)에 올린다. 웹 요청은 Fleet에 아무것도 보내지 않는다. 업무 실행기가 tick마다 `harbor_web/intake_loop.py`로 PLANNED 이송을 한 번 제안하고, 원래 key로 대조해 Fleet이 도착을 확인하면 TRIP_ARRIVED로 올린 뒤, R의 항만 사건 한 쪽을 읽는다. 설정이 없으면 예전처럼 출발 의도만 남는다.
+
+`RosyClient.trip_job(id)`와 `trip_request(key)`는 공정 문서 없는 수행 snapshot을 읽는다. 이송 후보·장소와, ADR 0029부터는 해석되지 않는 화물 코드 `object_ref` 하나만 wire로 보낸다. `request_digest`는 후보·step에 더해, `object_ref`가 있을 때만 그것까지 덮는다(ROSY 161957814a와 같은 바이트). Harbor 쪽 계산은 `fleet_contract.trip_digest` 한 곳이다. recipe·pallet/layer는 새 요청에 넣지 않는다. typed 동작의 추가·도달 사전 검증·중립 팔 동작은 후속 계약이다.
 
 공정 compiler 없는 실제 Fleet simulation HTTP 검증은 아래와 같이 명시 실행한다. 일반 단독 시험의 integration skip과 별개다.
 

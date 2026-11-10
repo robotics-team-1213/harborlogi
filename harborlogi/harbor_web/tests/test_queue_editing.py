@@ -117,6 +117,31 @@ class QueueEditingTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.lanes(), [(1, 1, 'FIXED', 'X'), (3, 1, 'FIXED', 'C'), (3, 2, 'FIXED', 'A'), (3, 3, 'FIXED', 'B')])
 
+    def test_registration_takes_the_queue_lock_before_its_transaction(self):
+        # Same order as every mutating service: queue_lock first, then the SQLite write lock (review of #44). The
+        # request's first lock must come while no transaction of its own is open yet.
+        from unittest.mock import patch
+        from django.db import connection
+        from harbor_web import coordination
+        depths, lock = [], coordination.queue_lock
+
+        class Spy:
+            def __enter__(self):
+                depths.append(len(connection.atomic_blocks))
+                return lock.__enter__()
+
+            def __exit__(self, *exc):
+                return lock.__exit__(*exc)
+        self.order('A', 3, 1)
+        cargo = self.cargo('C')
+        self.client.force_login(self.operator)
+        outside = len(connection.atomic_blocks)
+        with patch.object(coordination, 'queue_lock', Spy()):
+            response = self.client.post('/requests/new/', dict(cargo=cargo.pk, kind='OUTBOUND', priority_group=3,
+                                                               tie_policy='FIXED', make_first='on'))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(depths[:1], [outside])
+
     def test_unchecked_fixed_order_box_saves_any(self):
         self.client.force_login(self.operator)
         self.client.post('/requests/new/', dict(cargo=self.cargo('A').pk, kind='OUTBOUND', priority_group=2))
@@ -173,7 +198,7 @@ class TierScenarioPageTests(TestCase):
             placements.append(dict(cargo_id=code, area_id='yard', row=row, column=1, level=level, orientation=0, footprint_revision=footprint.pk))
         services.record_observation(self.admin, source_id='row-camera', source_revision='1', observed_at=timezone.now(),
             provenance='SYNTHETIC', condition=condition,
-            payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp', 'stand'], placements=placements, holdings=[]))
+            payload=dict(schema='grid-placement-v1', observed_areas=['yard', *(area['area_id'] for area in policy['spatial_areas'])], placements=placements, holdings=[]))
         self.c1 = services.create_order(self.operator, cargo=Cargo.objects.get(code='C1'), kind='OUTBOUND', priority_group=2, sequence=1, tie_policy='FIXED')
         self.c2 = services.create_order(self.operator, cargo=Cargo.objects.get(code='C2'), kind='OUTBOUND', priority_group=2, sequence=2, tie_policy='FIXED')
         self.client.force_login(self.operator)

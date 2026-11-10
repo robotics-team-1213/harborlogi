@@ -57,7 +57,7 @@ def main():
             ('C1', 1, 1, 1), ('C2', 1, 1, 2), ('C4', 2, 3, 1), ('C5', 3, 1, 1), ('C6', 3, 2, 2), ('C7', 3, 2, 3)]]
     observed = services.record_observation(admin, source_id='spatial-synthetic', source_revision='one',
         observed_at=timezone.now(), provenance='SYNTHETIC', condition=condition,
-        payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp', 'stand'], placements=placements, holdings=[]))
+        payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp_a', 'temp_b', 'stand'], placements=placements, holdings=[]))
     order = services.create_order(operator, cargo=Cargo.objects.get(code='C1'), kind='OUTBOUND',
         priority_group=1, sequence=1, tie_policy='FIXED', note='합성 다칸 반출 지시')
     with socket.socket() as allocated:
@@ -204,7 +204,7 @@ def main():
                 page.locator('[data-yard-stage="1"]').click()
                 step = page.locator('[data-yard-linked-flat]')
                 assert step.locator('[data-grid-area="yard"] [data-linked-level="2"]').get_attribute('aria-pressed') == 'true'
-                assert step.locator('[data-grid-area="temp"] [data-cargo-id="C2"]').is_visible()
+                assert step.locator('[data-grid-area^="temp_"] [data-cargo-id="C2"]').is_visible()
                 page.locator('[data-yard-stage="2"]').click()
                 step = page.locator('[data-yard-linked-flat]')
                 assert step.locator('[data-grid-area="yard"] [data-cargo-id="C1"]').count() == 0

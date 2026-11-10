@@ -158,6 +158,7 @@ def read_trip_proposal_execution(client, intent):
 
 
 def submit_trip_proposal_execution(client, intent):
-    sent = client.trip_propose(intent.candidates, intent.steps, request_key=intent.request_key)['proposal']
+    sent = client.trip_propose(intent.candidates, intent.steps, request_key=intent.request_key,
+                               object_ref=intent.object_ref or None)['proposal']
     validate_trip_proposal(intent, sent, getattr(client, 'expected_principal', None))
     return read_trip_proposal_execution(client, intent)

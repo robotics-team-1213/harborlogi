@@ -10,7 +10,7 @@ from harbor_web.models import Cargo, CargoFootprint, Condition, Observation, Mea
 from harbor_web.service_common import Conflict, _domain, _role, _save  # noqa: F401
 from harbor_web.site_config import (area_presentation, constraints, map_areas, snapshot,  # noqa: F401
                                     spatial_policy, spatial_snapshot)
-from harbor_web.order_queue import (TIERS, apply_tier_order, back_of_tier, create_order, move_outbound_to_front,  # noqa: F401
+from harbor_web.order_queue import (TIERS, apply_tier_order, back_of_tier, create_order, move_outbound_to_front, register_order,  # noqa: F401
                                     outbound_lanes, queue_digest, queue_snapshot, reorder_outbound, request_snapshot,
                                     tier_of, update_order)
 from harbor_web.plan_service import _calculate_plan, _outbound_schedule, make_plan, placement_projection  # noqa: F401

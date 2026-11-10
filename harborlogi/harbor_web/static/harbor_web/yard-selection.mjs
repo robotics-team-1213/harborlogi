@@ -36,7 +36,7 @@ export function occupancyFor(heights, row, column, depth = 1, width = 1) {
   return {height, step: Math.min(height, OCCUPANCY_CAP)};
 }
 
-/** A slot site's place as yard_rows.place_label names it: '1행 2칸 3층', '임시 적재(왼쪽) 2번', '컨베이어(반출)'. */
+/** A slot site's place as yard_rows.place_label names it: '1행 2칸 3층', '임시 장치 A 2번', '반출대'. */
 export function slotLabel(areas, item, slotCells) {
   if (!item) return '';
   const area = areas.find(a => a.id === item.area) || {id:item.area, label:item.area, rows:1, columns:slotCells, levels:1};

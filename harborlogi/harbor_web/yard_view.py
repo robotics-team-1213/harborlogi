@@ -7,7 +7,7 @@ from harbor.layout import YardLayout
 def yard_view(bays, policy, *, target='', blockers=()):
     result = deepcopy(bays)
     for bay in result:
-        bay['kind'] = ('반출대' if bay['bay_id'] == policy['outbound_stand'] else '컨베이어' if bay['bay_id'] == policy['conveyor']
+        bay['kind'] = ('반출대' if bay['bay_id'] in (policy['outbound_stand'], *policy.get('extra_outbound_stands', [])) else '컨베이어' if bay['bay_id'] == policy['conveyor']
                        else '임시 장치' if bay['bay_id'] in policy['temporary_bays'] else '장치 칸')
         bay['free'] = bay['capacity'] - len(bay['cargo'])
         bay['cells'] = [dict(code=code, level=i + 1,

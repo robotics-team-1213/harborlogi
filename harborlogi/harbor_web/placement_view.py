@@ -19,12 +19,13 @@ def placement_context(plan):
         stages.append(present_stage(dict(spatial_yard_view(projected, target=target), index=1,
             panel_id=f'placement-{plan.pk}-1', label='자동 추천 배치 · 실제 관측 아님', phase='입고 추천'), plan.condition.payload))
     previous = Plan.objects.filter(pk=plan.result.get('previous_plan_id'), order_id=plan.order_id).first()
+    newer = Plan.objects.filter(order_id=plan.order_id, pk__gt=plan.pk).order_by('-pk').first()  # decide_placement refuses this plan
     labels, slot = place_context(plan.condition.payload)
 
     def where(placement):
         return placement_text(placement, labels, slot) if placement else None
     alternatives = [dict(alternative, place=where(alternative['placement'])) for alternative in plan.result.get('alternatives', [])]
-    return dict(order=plan.order, plan=plan, plan_reason=reason_text(plan.result['reason']),
+    return dict(order=plan.order, plan=plan, plan_reason=reason_text(plan.result['reason']), newer_plan=newer,
         recommendation_place=where(plan.result.get('recommendation')), alternatives=alternatives,
         yard_stages=stages, observation_stage=stages[0], yard_scene=scene_for(stages), previous_plan=previous,
         plan_changes=plan_changes(plan.order, plan), plan_explanation=explain_plan(plan))

@@ -67,11 +67,16 @@ def plan_outbound(snapshot: YardSnapshot, request: OutboundRequest,
     moves = []
     displaced = []
     while planned[source.bay_id][-1] != request.cargo_id:
-        temporary = next((s for s in constraints.temporary_bays
-                          if s != source.bay_id
-                          and len(planned[s]) < bays[s].capacity
-                          and (source.bay_id, s) in constraints.allowed_moves
-                          and (s, source.bay_id) in constraints.allowed_moves), None)
+        legal = [s for s in constraints.temporary_bays
+                 if s != source.bay_id
+                 and len(planned[s]) < bays[s].capacity
+                 and (source.bay_id, s) in constraints.allowed_moves
+                 and (s, source.bay_id) in constraints.allowed_moves]
+        # Temporary bays can belong to one arm each (a plate per arm): prefer one an arm serves both ways.
+        # With none, keep the first legal bay so the reach check below holds with NO_ARM_REACHES_MOVE as before.
+        temporary = next((s for s in legal if arm_candidates is None and any(
+            (a, source.bay_id) in constraints.arm_reach and (a, s) in constraints.arm_reach for a in YARD_ARMS)),
+            legal[0] if legal else None)
         if temporary is None:
             return hold("NO_LEGAL_TEMPORARY_BAY")
         cargo = planned[source.bay_id].pop()

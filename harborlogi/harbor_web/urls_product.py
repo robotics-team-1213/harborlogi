@@ -1,5 +1,5 @@
 """Harbor product routes, separate from account and Fleet routes."""
-from django.urls import path
+from django.urls import path, re_path
 from harbor_web import views, planning_pages, field_pages, record_pages, guide_pages, map_pages, rearrangement_pages, scenario_pages
 
 urlpatterns = [
@@ -31,6 +31,7 @@ urlpatterns = [
     path('plans/<int:pk>/candidates/<int:rank>/', planning_pages.candidate_preview, name='candidate_preview'),
     path('work/', planning_pages.work_list, name='work'),
     path('work/<int:pk>/', planning_pages.work_detail, name='work_detail'),
+    re_path(r'^work/(?P<notification_id>n[0-9a-f]{32})/$', planning_pages.notification_work, name='notification_work'),
     path('rearrangement/', rearrangement_pages.rearrangement_page, name='rearrangement'),
     path('field/', field_pages.field_list, name='field'),
     path('field/new/', field_pages.field_new, name='field_new'),

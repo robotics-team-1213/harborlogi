@@ -94,21 +94,21 @@ def exercise_linked_views(page, output):
     cargo.select_option('C2')
     page.locator('[data-yard-stage="1"]').click()
     moved = json.loads(preview.get_attribute('data-selection'))
-    assert moved['cargoId'] == 'C2' and moved['area'] == 'temp' and moved['level'] == 1
+    assert moved['cargoId'] == 'C2' and moved['area'] == 'temp_a' and moved['level'] == 1
     assert grid.get_attribute('data-source') == 'predicted'
-    assert grid.locator('[data-grid-area="temp"] [data-cargo-id="C2"]').get_attribute('aria-pressed') == 'true'
+    assert grid.locator('[data-grid-area="temp_a"] [data-cargo-id="C2"]').get_attribute('aria-pressed') == 'true'
 
     page.locator('[data-yard-stage="0"]').click()
     page.locator('[data-scene-action="edit"]').click()
     cargo.select_option('C2')
     editor = page.locator('[data-scene-editor]')
-    editor.locator('[name=area]').select_option('temp')
+    editor.locator('[name=area]').select_option('temp_a')
     for name in ('row', 'column', 'level'):
         editor.locator(f'[name={name}]').fill('1')
     editor.locator('button[type=submit]').click()
     assert not page.locator('[data-scene-error]').inner_text()
     assert grid.get_attribute('data-source') == 'local-draft'
-    assert grid.locator('[data-grid-area="temp"] [data-cargo-id="C2"]').count() == 1
+    assert grid.locator('[data-grid-area="temp_a"] [data-cargo-id="C2"]').count() == 1
     assert grid.locator('[data-grid-area="yard"] [data-cargo-id="C2"]').count() == 0
     page.screenshot(path=str(output / 'linked-desktop-draft.png'), full_page=True)
     assert page.locator('#yard-scene-data').text_content() == source
@@ -146,7 +146,7 @@ def exercise_linked_views(page, output):
         ['x','y','z'].every(key => rendered[key] === endpoint[key]);
     }''', arg=[moving, endpoint])
     assert grid.get_attribute('data-source') == 'predicted'
-    assert json.loads(preview.get_attribute('data-selection'))['area'] == 'temp'
+    assert json.loads(preview.get_attribute('data-selection'))['area'] == 'temp_a'
     page.locator('[data-yard-stage="0"]').click()
     assert page.locator('#yard-scene-data').text_content() == source
     assert posts == [], posts

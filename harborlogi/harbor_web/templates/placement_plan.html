@@ -7,6 +7,7 @@
 {% include 'auto_planning_status.html' %}
 {% if plan.result.status == 'READY' and plan.result.recommendation %}<section class="panel decision-panel" aria-labelledby="decision-title"><div class="panel-h"><h3 id="decision-title">입고 위치 결정</h3><span class="scope">알고리즘이 계산하고, 사람이 결정합니다</span></div><div class="panel-b">
   {% if decision %}<p><span class="chip tone-info">결정됨</span> {{ decision.actor.username }} · {{ decision.created_at|date:'m-d H:i:s' }} · {{ recommendation_place }}</p><p class="helptext">결정은 기록만 남깁니다. 실제 입고 이동은 입고 실행 연결(설치 대응)과 새 관측으로 확인합니다.</p>
+  {% elif newer_plan %}<p>이 요청에 더 새 계획이 있습니다. <a href="/plans/{{ newer_plan.pk }}/">최신 계획 #{{ newer_plan.pk }}에서 결정</a></p>
   {% elif plan_changes %}<p>계산 기준이 달라져 이 추천으로는 결정할 수 없습니다. <a href="/requests/{{ order.pk }}/">최신 계획 확인</a></p>
   {% elif can_operate %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="decide"><input type="hidden" name="expected_version" value="{{ order.version }}"><button type="submit">이 위치로 결정</button></form><p class="helptext">{{ order.cargo.code }}을(를) {{ recommendation_place }}에 두는 추천입니다. 결정해야 다음 단계로 넘어갑니다.</p>
   {% else %}<p class="muted">결정에는 업무 담당 역할이 필요합니다.</p>{% endif %}

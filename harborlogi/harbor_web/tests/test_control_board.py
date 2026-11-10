@@ -59,7 +59,7 @@ class YardRowsTests(SimpleTestCase):
         areas = (Area('yard', 3, 6, 3), *(Area(**area) for area in policy['spatial_areas']))
         snapshot = SpatialSnapshot(1, timezone.now(), YardLayout.from_dict(policy['yard_layout']), areas,
             (CargoShape('K1', 3, 1), CargoShape('K2', 3, 2), CargoShape('T1', 3, 3)),
-            (Placement('K1', 'yard', 1, 4, 1), Placement('K2', 'yard', 1, 4, 2), Placement('T1', 'temp_r', 2, 1, 1)))
+            (Placement('K1', 'yard', 1, 4, 1), Placement('K2', 'yard', 1, 4, 2), Placement('T1', 'temp_b', 2, 1, 1)))
         view = rows_from_snapshot(snapshot, labels={k: v['label'] for k, v in policy['area_presentation'].items()},
                                   temporary=policy['temporary_bays'], outbound='stand', targets={'K1'}, rehandles={'K2'},
                                   presentation=policy['area_presentation'], slot=policy['slot_cells'])
@@ -68,18 +68,18 @@ class YardRowsTests(SimpleTestCase):
         self.assertEqual((slot['key'], [(e['level'], e['cargo'], e['role']) for e in slot['stack']]),
                          ('yard-R1S2', [(1, 'K1', 'target'), (2, 'K2', 'rehandle')]))
         self.assertEqual((view['yard']['used'], view['yard']['slots']), (2, 18))
-        self.assertEqual([[a['id'] for a in view[side]] for side in ('left', 'right', 'below')], [['temp_l'], ['temp_r'], ['stand']])
+        self.assertEqual([[a['id'] for a in view[side]] for side in ('left', 'right', 'below')], [['temp_a'], ['temp_b'], ['stand']])
         tray = view['right'][0]
         self.assertEqual([s['label'] for lane in tray['lanes'] for s in lane['slots']], ['1번', '2번', '3번'])
-        self.assertEqual((tray['label'], tray['used'], tray['slots'], tray['cargo']), ('임시 적재(오른쪽)', 1, 3, ['T1']))
+        self.assertEqual((tray['label'], tray['used'], tray['slots'], tray['cargo']), ('임시 장치 B', 1, 3, ['T1']))
         self.assertEqual(view['dimensions'], '3행 × 한 행 2자리 · 3층')
 
     def test_place_label_reads_rows_and_slots(self):
         self.assertEqual(place_label(dict(area_id='yard', row=2, column=1, level=3)), '2행 3층')
         self.assertEqual(place_label(dict(area_id='yard', row=2, column=4, level=1), slot=3), '2행 2칸 1층')
         self.assertEqual(place_label(dict(area_id='temp', row=1, column=1, level=1), {'temp': '임시 장치'}), '임시 장치 1층')
-        self.assertEqual(place_label(dict(area_id='temp_l', row=3, column=1, level=1), {'temp_l': '임시 적재(왼쪽)'}, 3),
-                         '임시 적재(왼쪽) 3번 1층')
+        self.assertEqual(place_label(dict(area_id='temp_a', row=3, column=1, level=1), {'temp_a': '임시 장치 A'}, 3),
+                         '임시 장치 A 3번 1층')
         self.assertEqual(place_label(None), '반입(컨베이어)')
         self.assertEqual(slot_key(dict(area_id='yard', row=1, column=4), 3), 'yard-R1S2')
         self.assertEqual(placement_text(dict(area_id='yard', row=1, column=2, level=1, orientation=90)), '1행 1층 · 2열 · 90°')
@@ -87,10 +87,10 @@ class YardRowsTests(SimpleTestCase):
 
     def test_site_labels_drop_a_lone_slot_number_and_level(self):
         labels, site = place_context(site_policy())
-        self.assertEqual((site.size, site.one_slot, site.one_level), (3, {'stand'}, {'temp_l', 'temp_r', 'stand'}))
+        self.assertEqual((site.size, site.one_slot, site.one_level), (3, {'stand'}, {'temp_a', 'temp_b', 'stand'}))
         self.assertEqual(place_label(dict(area_id='yard', row=1, column=4, level=3), labels, site), '1행 2칸 3층')
-        self.assertEqual(place_label(dict(area_id='temp_l', row=2, column=1, level=1), labels, site), '임시 적재(왼쪽) 2번')
-        self.assertEqual(place_label(dict(area_id='stand', row=1, column=1, level=1), labels, site), '컨베이어(반출)')
+        self.assertEqual(place_label(dict(area_id='temp_a', row=2, column=1, level=1), labels, site), '임시 장치 A 2번')
+        self.assertEqual(place_label(dict(area_id='stand', row=1, column=1, level=1), labels, site), '반출대')
         self.assertEqual(slot_key(dict(area_id='yard', row=3, column=4), site), 'yard-R3S2')
         self.assertEqual(place_context(example_policy())[1], None)
 
@@ -111,7 +111,7 @@ class ControlBoardPagesTests(TestCase):
             placements.append(dict(cargo_id=code, area_id='yard', row=row, column=1, level=level, orientation=0, footprint_revision=footprint.pk))
         self.observation = services.record_observation(self.admin, source_id='row-camera', source_revision='1', observed_at=timezone.now(),
             provenance='SYNTHETIC', condition=condition,
-            payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp', 'stand'], placements=placements, holdings=[]))
+            payload=dict(schema='grid-placement-v1', observed_areas=['yard', *(area['area_id'] for area in policy['spatial_areas'])], placements=placements, holdings=[]))
         self.order = services.create_order(self.operator, cargo=Cargo.objects.get(code='C1'), kind='OUTBOUND',
                                            priority_group=1, sequence=1, tie_policy='FIXED')
         self.plan = services.make_plan(self.operator, order_id=self.order.pk, expected_version=1, observation_id=self.observation.pk)
@@ -150,7 +150,7 @@ class SiteMapPagesTests(TestCase):
             placements.append(dict(cargo_id=code, area_id='yard', row=row, column=column, level=level, orientation=0, footprint_revision=footprint.pk))
         self.observation = services.record_observation(self.admin, source_id='site-camera', source_revision='1', observed_at=timezone.now(),
             provenance='SYNTHETIC', condition=condition, payload=dict(schema='grid-placement-v1', placements=placements, holdings=[],
-                                                                      observed_areas=['yard', 'temp_l', 'temp_r', 'stand']))
+                                                                      observed_areas=['yard', 'temp_a', 'temp_b', 'stand']))
         self.order = services.create_order(self.operator, cargo=Cargo.objects.get(code='K1'), kind='OUTBOUND',
                                            priority_group=1, sequence=1, tie_policy='FIXED')
         self.plan = services.make_plan(self.operator, order_id=self.order.pk, expected_version=1, observation_id=self.observation.pk)
@@ -162,15 +162,15 @@ class SiteMapPagesTests(TestCase):
         inventory = response.context['operations']['inventory']
         self.assertEqual((inventory['occupied'], inventory['capacity'], inventory['occupancy_percent']), (4, 18, 22))
         html = response.content.decode()
-        for text in ('장치 야드 4 / 18자리', '임시 적재(왼쪽)', '임시 적재(오른쪽)', '컨베이어(반출)', 'site-left', 'site-right',
+        for text in ('장치 야드 4 / 18자리', '임시 장치 A', '임시 장치 B', '반출대', 'site-left', 'site-right',
                      'data-yard-row="yard-R1S2"', '<span class="slot-name">2칸</span>', '3행 × 한 행 2자리 · 3층'):
             self.assertIn(text, html)
         for move in self.plan.result['moves']:
             self.assertEqual((move['destination_placement']['column'] - 1) % 3, 0)
         steps = response.context['operations']['workload']['plans'][0]['steps']
         self.assertEqual([(s['phase'], s['source'], s['destination']) for s in steps if s['phase'] == '반출'],
-                         [('반출', '1행 1칸 1층', '컨베이어(반출)')])
-        self.assertNotIn('컨베이어(반출) 1번', html)
+                         [('반출', '1행 1칸 1층', '반출대')])
+        self.assertNotIn('반출대 1번', html)
 
     def test_inventory_lists_slots_without_sizes_or_turns(self):
         response = self.client.get(f'/inventory/?observation={self.observation.pk}')

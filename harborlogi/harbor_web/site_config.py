@@ -8,22 +8,28 @@ from harbor.model import Bay, CargoHolding, YardSnapshot, PortConstraints
 from harbor.layout import YardLayout
 from harbor_web.models import clean_text, Cargo, CargoFootprint
 from harbor_web.service_common import _domain
+from harbor_web.yard_occupancy import AREA_LABELS
 
 
 def constraints(payload, *, _validate_spatial=True):
     def build():
         required = {'outbound_stand', 'temporary_bays', 'allowed_moves', 'max_observation_age_seconds', 'conveyor', 'arm_reach'}
-        if not isinstance(payload, dict) or not required <= set(payload) <= required | {'yard_layout', 'spatial_areas', 'spatial_moves', 'storage_areas', 'area_presentation', 'slot_cells'}:
+        if not isinstance(payload, dict) or not required <= set(payload) <= required | {'yard_layout', 'spatial_areas', 'spatial_moves', 'storage_areas', 'area_presentation', 'extra_outbound_stands', 'stack_rules', 'slot_cells'}:
             raise ValueError('Condition requires exactly the documented keys.')
         for name in ('temporary_bays', 'allowed_moves', 'arm_reach'):
             if not isinstance(payload[name], list):
                 raise ValueError('Expected lists.')
+        extra = payload.get('extra_outbound_stands', [])
+        if not isinstance(extra, list) or len({*extra, payload['outbound_stand']}) != len(extra) + 1:
+            raise ValueError('Extra outbound stands require unique text identifiers.')
+        if extra and 'spatial_areas' not in payload:
+            raise ValueError('Several outbound stands require spatial areas.')
         for name in ('allowed_moves', 'arm_reach'):
             if any(not isinstance(edge, list) or len(edge) != 2 for edge in payload[name]):
                 raise ValueError('Expected pairs.')
             if len({tuple(e) for e in payload[name]}) != len(payload[name]):
                 raise ValueError('Duplicate pairs.')
-        for text in (payload['outbound_stand'], payload['conveyor'], *payload['temporary_bays'],
+        for text in (payload['outbound_stand'], *extra, payload['conveyor'], *payload['temporary_bays'],
                      *(v for edge in payload['allowed_moves'] for v in edge), *(v for edge in payload['arm_reach'] for v in edge)):
             if not isinstance(text, str):
                 raise ValueError('Expected text identifiers.')
@@ -36,13 +42,13 @@ def constraints(payload, *, _validate_spatial=True):
             mapped = {cell.bay_id for cell in layout.cells}
             for cell in layout.cells:
                 clean_text(cell.bay_id)
-            if mapped & {payload['outbound_stand'], payload['conveyor'], *payload['temporary_bays']}:
+            if mapped & {payload['outbound_stand'], *extra, payload['conveyor'], *payload['temporary_bays']}:
                 raise ValueError('Auxiliary locations must remain outside the storage grid.')
-            known = mapped | {payload['outbound_stand'], payload['conveyor'], *payload['temporary_bays'], *payload.get('storage_areas', [])}
+            known = mapped | {payload['outbound_stand'], *extra, payload['conveyor'], *payload['temporary_bays'], *payload.get('storage_areas', [])}
             referenced = {p for edge in payload['allowed_moves'] for p in edge} | {edge[1] for edge in payload['arm_reach']}
             if not referenced <= known:
                 raise ValueError('Moves and reach must reference configured grid or auxiliary locations.')
-        if _validate_spatial and any(k in payload for k in ('spatial_areas', 'spatial_moves', 'storage_areas', 'area_presentation', 'slot_cells')):
+        if _validate_spatial and any(k in payload for k in ('spatial_areas', 'spatial_moves', 'storage_areas', 'area_presentation', 'extra_outbound_stands', 'stack_rules', 'slot_cells')):
             spatial_policy(payload)
             area_presentation(payload)
         return PortConstraints(payload['outbound_stand'], tuple(payload['temporary_bays']),
@@ -100,7 +106,14 @@ def _map_areas(payload):
     if not isinstance(items, list) or len(items) > 15 or any(not isinstance(a, dict) or
             set(a) != {'area_id', 'rows', 'columns', 'levels'} for a in items):
         raise ValueError('Spatial areas require explicit dimensions.')
-    areas = (Area('yard', layout.rows, layout.columns, layout.levels), *(Area(**a) for a in items))
+    from harbor.spatial import STACK_RULES
+    rules = payload.get('stack_rules', {})
+    if not isinstance(rules, dict) or any(not isinstance(v, str) or v not in STACK_RULES for v in rules.values()):
+        raise ValueError('Stack rules map area identifiers to known rules.')
+    areas = (Area('yard', layout.rows, layout.columns, layout.levels, rules.get('yard', 'any')),
+             *(Area(**a, stack_rule=rules.get(a['area_id'], 'any')) for a in items))
+    if not rules.keys() <= {a.area_id for a in areas}:
+        raise ValueError('Stack rules must reference configured areas.')
     identifiers = [a.area_id for a in areas]
     if len(set(identifiers)) != len(identifiers):
         raise ValueError('Spatial areas must be unique; yard is configured by yard_layout.')
@@ -111,7 +124,7 @@ def _map_areas(payload):
     storage = payload.get('storage_areas', ['yard'])
     if not isinstance(storage, list) or not storage or any(not isinstance(a, str) for a in storage) or len(set(storage)) != len(storage):
         raise ValueError('Storage areas require unique text identifiers.')
-    roles = [*storage, *payload['temporary_bays'], payload['outbound_stand']]
+    roles = [*storage, *payload['temporary_bays'], payload['outbound_stand'], *payload.get('extra_outbound_stands', [])]
     if 'yard' not in storage or len(roles) != len(set(roles)) or set(identifiers) != set(roles):
         raise ValueError('Storage, temporary and outbound roles must disjointly cover every area.')
     if payload['conveyor'] in identifiers:
@@ -133,7 +146,7 @@ def area_presentation(payload):
             result = {'yard': dict(label='장치 야드', x=0, y=0)}
             right, y = areas[0].columns + 1.2, 0
             for area in areas[1:]:
-                result[area.area_id] = dict(label={'temp': '임시 장치', 'stand': '반출대'}.get(area.area_id, area.area_id), x=right, y=y)
+                result[area.area_id] = dict(label=AREA_LABELS.get(area.area_id, area.area_id), x=right, y=y)
                 y += area.rows + 1.2
             return result
         source = payload['area_presentation']
@@ -183,7 +196,8 @@ def spatial_policy(payload):
             raise ValueError('Every area must hold whole slots: columns must be a multiple of slot_cells.')
         return SpatialPolicy(legacy.outbound_stand, legacy.temporary_bays,
             frozenset(tuple(p) for p in pairs), legacy.arm_reach, legacy.max_observation_age,
-            tuple(payload.get('storage_areas', ['yard'])), slot_cells)
+            tuple(payload.get('storage_areas', ['yard'])), tuple(payload.get('extra_outbound_stands', [])),
+            slot_cells=slot_cells)
     return _domain(build)
 
 
