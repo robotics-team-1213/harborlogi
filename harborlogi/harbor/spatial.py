@@ -481,7 +481,7 @@ def plan_spatial(snapshot: SpatialSnapshot, request: OutboundRequest, policy: Sp
                            alternatives[0][2].moves, optimization=report)
 
 
-REARRANGE_BEAM_WIDTH = 8
+REARRANGE_BEAM_WIDTH = 16  # 8 lost better plans on a 3x6x3 yard of 1x3 containers (KAN-115 site)
 REARRANGE_COMPLETION = ('rearranged_at_targets', 'arms_retreated')
 
 
@@ -584,15 +584,28 @@ def plan_rearrangement(snapshot: SpatialSnapshot, policy: SpatialPolicy,
                          o.rows if p.orientation == 90 else o.columns) for o in outbound_lines)
 
     def free_positions(occupied, n, by_id):
+        # Stacks have no holes (every cell above level 1 is supported), so a footprint whose cells all stand at
+        # height h can only fit at level h+1: test that one level, not every level. The probe placement exists
+        # for the stacking rule alone, which never rejects on 'any' areas or on the floor.
+        heights = {}
+        for a, r, c, l in occupied:
+            if heights.get((a, r, c), 0) < l:
+                heights[a, r, c] = l
         total = 0
         for area_id in policy.storage_areas:
             area = areas[area_id]
             for orientation in ((0,) if n == 1 else (0, 90)):
-                for level in range(1, area.levels+1):
-                    for row in range(1, area.rows+1):
-                        for column in range(1, area.columns+1):
-                            probe = Placement('probe', area_id, row, column, level, orientation)
-                            total += fits(footprint(probe, n), occupied, probe, by_id)
+                for row in range(1, area.rows+1):
+                    for column in range(1, area.columns+1):
+                        cells = [(row + (i if orientation == 90 else 0), column + (i if orientation == 0 else 0)) for i in range(n)]
+                        if cells[-1][0] > area.rows or cells[-1][1] > area.columns:
+                            continue
+                        level = heights.get((area_id, *cells[0]), 0) + 1
+                        if level > area.levels or any(heights.get((area_id, r, c), 0) + 1 != level for r, c in cells[1:]):
+                            continue
+                        probe = (Placement('probe', area_id, row, column, level, orientation)
+                                 if area.stack_rule != 'any' and level > 1 else None)
+                        total += fits(tuple((area_id, r, c, level) for r, c in cells), occupied, probe, by_id)
         return total
 
     def metrics(placements):

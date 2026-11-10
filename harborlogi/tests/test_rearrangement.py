@@ -130,5 +130,34 @@ class RearrangementTests(unittest.TestCase):
         self.assertEqual((target.area_id, target.row, target.column, target.level), ('yard', 3, 3, 1))
 
 
+class SiteYardTests(unittest.TestCase):
+    """The KAN-115 site: a 3x6x3 yard of 1x3 containers with a temporary area per arm."""
+
+    def test_the_beam_keeps_the_plan_that_lowers_blocking_on_the_site_yard(self):
+        # A width-8 beam lost the 3-move plan below among equal scores and settled for 6 moves that only add room.
+        layout = YardLayout.from_dict(dict(rows=3, columns=6, levels=3, cells=[
+            dict(bay_id=f'Y{row}{column}', row=row, column=column) for row in range(1, 4) for column in range(1, 7)]))
+        stacks = {(1, 1): ('C1', 'C2', 'C3'), (1, 4): ('C4',), (2, 1): ('C5', 'C6'), (2, 4): ('C7', 'C8', 'C9'),
+                  (3, 1): ('C10',), (3, 4): ('C11', 'C12', 'C13')}
+        placements = tuple(Placement(code, 'yard', row, column, level)
+                           for (row, column), codes in stacks.items() for level, code in enumerate(codes, start=1))
+        source = SpatialSnapshot(4, NOW, layout, (Area('yard', 3, 6, 3), Area('temp_a', 3, 3, 1), Area('temp_b', 3, 3, 1),
+                                                  Area('stand', 1, 3, 1)),
+                                 tuple(CargoShape(p.cargo_id, 3, i + 1) for i, p in enumerate(placements)), placements)
+        schedule = {'C1': (1, 7), 'C2': (3, None), 'C3': (2, 8), 'C4': (1, 9), 'C5': (1, 4), 'C6': (1, None), 'C7': (2, 7),
+                    'C8': (2, 5), 'C9': (1, 5), 'C10': (2, 4), 'C11': (2, None), 'C12': (1, None), 'C13': (2, 9)}
+        bays = {cell.bay_id for cell in layout.cells}
+        moves = frozenset({('yard', 'yard'), ('yard', 'temp_a'), ('temp_a', 'yard'), ('yard', 'temp_b'), ('temp_b', 'yard'),
+                           ('yard', 'stand')})
+        reach = frozenset({('A', bay) for bay in bays} | {('B', bay) for bay in bays}
+                          | {('A', 'temp_a'), ('B', 'temp_b'), ('B', 'stand')})
+        result = plan(source, schedule, SpatialPolicy('stand', ('temp_a', 'temp_b'), moves, reach, timedelta(minutes=1)),
+                      requested=True)
+        self.assertEqual(result.status, 'READY')
+        score = result.optimization.score
+        self.assertEqual((score.blocked_pairs_before, score.blocked_pairs, score.gain, len(result.moves)), (3, 1, 2, 3))
+        replay(self, source, result.moves)
+
+
 if __name__ == '__main__':
     unittest.main()
