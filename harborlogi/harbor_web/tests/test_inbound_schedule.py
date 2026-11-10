@@ -30,12 +30,13 @@ class TimeCellTests(SimpleTestCase):
     def test_text_and_spreadsheet_times(self):
         cases = {'9:05': (None, time(9, 5)), '09:05:30': (None, time(9, 5, 30)), '2026-11-10 09:05': (date(2026, 11, 10), time(9, 5)),
                  '0.375': (None, time(9)), '0.3958333333333333': (None, time(9, 30)), '46336.5': (date(2026, 11, 10), time(12)),
-                 '0': (None, time(0))}
+                 '0': (None, time(0)), '0.041666666666666664': (None, time(1)), '4.1666666666666664E-2': (None, time(1)),
+                 '0.003472222222222222': (None, time(0, 5))}
         for text, expected in cases.items():
             self.assertEqual(inbound_schedule.parse_time(text), expected, text)
 
     def test_what_is_not_a_time(self):
-        for text in ('', '24:00', '9:60', '9', '1.5', '아홉 시', '٩:٠٥', '2026-02-30 09:00'):
+        for text in ('', '24:00', '9:60', '9', '1.5', '아홉 시', '٩:٠٥', '2026-02-30 09:00', '1E300', 'nan', '-0.5'):
             self.assertIsNone(inbound_schedule.parse_time(text), text)
 
 
@@ -79,6 +80,41 @@ class DeliveryTests(SimpleTestCase):
         self.assertEqual(inbound_schedule.rearrange_gate(at(11), [], set()), (None, None))
 
 
+class SlotStateTests(SimpleTestCase):
+    start = datetime(2026, 11, 10, 9, 0)
+
+    def at(self, minutes):
+        return self.start + timedelta(minutes=minutes)
+
+    def hold(self, minutes, reason):
+        return SimpleNamespace(created_at=self.at(minutes), detail=dict(reason=reason))
+
+    def plan(self, minutes, state=None):
+        return SimpleNamespace(created_at=self.at(minutes), command=SimpleNamespace(state=state) if state else None)
+
+    def test_the_closing_busy_record_never_hides_what_the_slot_found(self):
+        slot = inbound_schedule.Slot(self.at(0), self.at(20), timedelta(minutes=20))
+        holds = [self.hold(19.5, 'INBOUND_SCHEDULE_BUSY'), self.hold(1, 'REARRANGE_NOT_WORTH')]  # newest first
+        self.assertEqual(inbound_schedule._slot_state(slot, self.at(25), [], holds, True)[:3], ('할 일 없음', 'muted', '옮길 만한 이득 없음'))
+        self.assertEqual(inbound_schedule._slot_state(slot, self.at(25), [], [], True)[:2], ('실행 안 함', 'muted'))
+        self.assertEqual(inbound_schedule._slot_state(slot, self.at(5), [], [], False)[:3], ('보류', 'hold', '자동 허용 꺼짐'))
+        self.assertEqual(inbound_schedule._slot_state(slot, self.at(5), [], [], True)[:2], ('대기', 'wait'))
+
+    def test_a_plan_shows_its_command(self):
+        slot = inbound_schedule.Slot(self.at(0), None, None)
+        state = lambda plan: inbound_schedule._slot_state(slot, self.at(5), [plan], [], True)[:3]
+        self.assertEqual(state(self.plan(1, 'COMPLETED')), ('완료', 'ok', ''))
+        self.assertEqual(state(self.plan(1, 'CANCELLED')), ('보류', 'hold', '인계 취소됨'))
+        self.assertEqual(state(self.plan(1, 'BLOCKED')), ('보류', 'hold', '인계 보류'))
+        self.assertEqual(state(self.plan(1)), ('보류', 'hold', '실행 인계 안 됨'))
+
+    def test_a_plan_outside_the_gaps_belongs_to_the_last_slot(self):
+        gap, last = inbound_schedule.Slot(self.at(10), self.at(30), timedelta(minutes=20)), inbound_schedule.Slot(self.at(40), None, None)
+        early, inside = self.plan(5, 'COMPLETED'), self.plan(12, 'COMPLETED')  # 5: every container stored before the gap
+        self.assertEqual(inbound_schedule.slot_plans([gap, last], [inside, early]), [[inside], [early]])
+        self.assertEqual(inbound_schedule._slot_state(last, self.at(6), [early], [], True)[0], '완료')
+
+
 class ScheduleSheetTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('lead')
@@ -113,6 +149,10 @@ class ScheduleSheetTests(TestCase):
         _, errors = scenario_import.parse_workbook(write_xlsx({'초기 배치': LAYOUT, '입고 일정': [list(scenario_import.SCHEDULE_COLUMNS)],
                                                                '이벤트': [list(scenario_import.EVENT_COLUMNS)]}), self.dims)
         self.assertEqual(errors, ['「입고 일정」과 「이벤트」 중 하나만 둡니다.'])
+        _, errors = scenario_import.parse_workbook(schedule_book([['23:50', '1', 'N1', ''], ['00:10', '2', 'N2', '']]), self.dims)
+        self.assertEqual(errors, ['「입고 일정」: 날짜 없는 시각이 18시간 넘게 벌어져 있습니다. 자정을 넘는 일정은 2026-11-10 23:50 처럼 날짜를 함께 적습니다.'])
+        _, errors = scenario_import.parse_workbook(schedule_book([['2026-11-10 23:50', '1', 'N1', ''], ['2026-11-11 00:10', '2', 'N2', '']]), self.dims)
+        self.assertEqual(errors, [])
         _, errors = scenario_import.parse_workbook(write_xlsx({'초기 배치': LAYOUT}), self.dims)
         self.assertEqual(errors, ['「입고 일정」 시트가 없습니다. 양식을 내려받아 쓰세요.'])
         _, errors = scenario_import.parse_workbook(write_xlsx({'초기 배치': LAYOUT, '이벤트': [
@@ -135,6 +175,20 @@ class ScheduleSheetTests(TestCase):
         self.assertContains(self.client.get(f'/?observation={observation.pk}'), '입고 사이 빈 시간 33분')  # 09:07 → 09:40
         template = read_xlsx(self.client.get('/scenarios/template.xlsx').content)
         self.assertEqual(set(template), {'초기 배치', '입고 일정', '설명'})
+
+    def test_a_later_events_scenario_ends_the_schedule(self):
+        self.upload(scenario_import.template_workbook(self.dims))
+        self.assertEqual(_outbound_schedule()['N1'], (3, None))
+        events = write_xlsx({'초기 배치': [list(scenario_import.LAYOUT_COLUMNS), ['C1', '', '1', '1', '1'], ['C4', '', '1', '2', '1']],
+                             '이벤트': [list(scenario_import.EVENT_COLUMNS), ['1', '입고', 'E1', '', '일반', '']]})
+        self.upload(events, name='S2')
+        self.assertEqual(inbound_schedule.active_entries(), [])
+        self.assertEqual(inbound_schedule.rearrange_gate(timezone.now()), (None, None))
+        self.assertNotIn('N1', _outbound_schedule())
+        self.assertNotIn('C1', _outbound_schedule())  # the old tiers no longer rank the new scenario's cargo
+        latest = Observation.objects.latest('pk')
+        plans = self.client.get(f'/?observation={latest.pk}').context['operations']['workload']['plans']
+        self.assertEqual([(row['kind'], row['title']) for row in plans], [('inbound', 'E1')])
 
     def test_an_outbound_request_outranks_the_tier(self):
         self.upload(scenario_import.template_workbook(self.dims))

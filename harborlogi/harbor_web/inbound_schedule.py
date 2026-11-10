@@ -27,7 +27,7 @@ HOLD_LABELS = {
 _EXCEL_EPOCH = date(1899, 12, 30)
 _CLOCK = re.compile(r'(\d{1,2}):(\d{2})(?::(\d{2}))?')
 _STAMP = re.compile(r'(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?')
-_NUMBER = re.compile(r'\d{1,6}(?:\.\d{1,17})?')
+_NUMBER = re.compile(r'\d{1,6}(?:\.\d{1,40})?(?:[eE][-+]?\d{1,3})?')  # 0.041666666666666664, 4.1666666666666664E-2
 
 
 def parse_time(text):
@@ -50,7 +50,7 @@ def parse_time(text):
                     time(int(match[4]), int(match[5]), int(match[6] or 0)))
         except ValueError:
             return None
-    if not _NUMBER.fullmatch(text):
+    if not _NUMBER.fullmatch(text) or not float(text) < 2958466:  # past 9999-12-31, the last spreadsheet date
         return None
     days, seconds = divmod(round(float(text) * 86400), 86400)
     if 0 < days < 20000:  # 1954 or earlier: a typed hour such as 9, not a spreadsheet date
@@ -99,13 +99,26 @@ def slots(delivery_list):
     return found
 
 
+def active_start():
+    """Start observation id of the active schedule, or None.
+
+    A schedule is active while its import is the latest scenario import: a later 「이벤트」 scenario ends it, so its
+    slots, rows and tiers never leak into a scenario that did not ask for them.
+    """
+    from harbor_web.models import Audit
+    latest = Audit.objects.filter(action='scenario.import').order_by('-pk').values_list('object_id', 'detail').first()
+    if latest is None or latest[1].get('mode') != 'schedule':
+        return None
+    return int(latest[0])
+
+
 def active_entries():
-    """The rows of the latest imported schedule, or [] when none was imported."""
+    """The rows of the active schedule, or [] when there is none."""
     from harbor_web.models import ScheduledInbound
-    latest = ScheduledInbound.objects.order_by('-start_id').values_list('start_id', flat=True).first()
-    if latest is None:
+    start = active_start()
+    if start is None:
         return []
-    return list(ScheduledInbound.objects.filter(start_id=latest).select_related('order__cargo').order_by('pk'))
+    return list(ScheduledInbound.objects.filter(start_id=start).select_related('order__cargo').order_by('pk'))
 
 
 def _finished(entries):
@@ -141,6 +154,11 @@ def _clock(value, now):
     return local.strftime('%H:%M') if local.date() == today else local.strftime('%m-%d %H:%M')
 
 
+def _command_label(state):
+    from harbor_web.workspace import COMMAND_LABELS
+    return COMMAND_LABELS.get(state) or {'CANCELLED': '인계 취소됨'}.get(state, state)
+
+
 def _vehicle(name):
     return f'핑키 {name}' if name.isdigit() else name
 
@@ -149,13 +167,12 @@ def _inbound_state(entry, plan, command, digest):
     """(state, tone, note) of one scheduled container: its command first, then its placement decision."""
     from harbor_web.command_models import ACTIVE_COMMAND_STATES
     from harbor_web.inbound_decision import decision_block, placement_decision
-    from harbor_web.workspace import COMMAND_LABELS
     if command is not None:
         if command.state == 'COMPLETED':
             return '완료', 'ok', ''
         if command.state in ACTIVE_COMMAND_STATES:
-            return '입고 중', 'ok', COMMAND_LABELS.get(command.state, '')
-        return '보류', 'hold', COMMAND_LABELS.get(command.state, command.state)
+            return '입고 중', 'ok', _command_label(command.state)
+        return '보류', 'hold', _command_label(command.state)
     order = entry.order
     decision = placement_decision(plan) if plan else None
     if decision and plan.order_version == order.version:
@@ -170,31 +187,48 @@ def _inbound_state(entry, plan, command, digest):
     return '재검토', 'hold', reason
 
 
-def _slot_state(slot, now, plans, holds, authorized):
-    """(state, tone, note, plan) of one rearrangement slot from the automatic plans and HOLD records inside it."""
-    from harbor_web.command_models import ACTIVE_COMMAND_STATES
+def slot_plans(slot_list, plans):
+    """Automatic plans (newest first) per slot: a plan inside a gap slot belongs to it, any other to the last slot.
 
-    def inside(at):
-        return slot.start <= at and (slot.end is None or at < slot.end)
-    if now < slot.start:
-        return '예정', 'wait', '' if authorized else '자동 허용 꺼짐', None
-    plan = next((p for p in plans if inside(p.created_at)), None)
+    Automatic plans start only inside slots, or anywhere once every scheduled container is stored, which is the
+    「모든 입고 뒤」 rearrangement even when it comes early.
+    """
+    found = [[] for _ in slot_list]
+    for plan in plans:
+        home = next((n for n, s in enumerate(slot_list) if s.end is not None and s.start <= plan.created_at < s.end),
+                    len(slot_list) - 1)
+        found[home].append(plan)
+    return found
+
+
+def _slot_state(slot, now, plans, holds, authorized):
+    """(state, tone, note, plan) of one rearrangement slot from its automatic plans and the HOLD records inside it."""
+    from harbor_web.command_models import ACTIVE_COMMAND_STATES
+    plan = plans[0] if plans else None
     if plan is not None:
         command = getattr(plan, 'command', None)
-        if command is not None and command.state == 'COMPLETED':
+        if command is None:
+            return '보류', 'hold', '실행 인계 안 됨', plan
+        if command.state == 'COMPLETED':
             return '완료', 'ok', '', plan
-        if command is not None and command.state in ACTIVE_COMMAND_STATES:
-            return '실행 중', 'ok', '', plan
-        return '보류', 'hold', '실행 인계 안 됨', plan
-    hold = next((h for h in holds if inside(h.created_at)), None)
-    if hold is not None:
-        reason = hold.detail.get('reason', '')
+        if command.state in ACTIVE_COMMAND_STATES:
+            return '실행 중', 'ok', _command_label(command.state), plan
+        return '보류', 'hold', _command_label(command.state), plan
+    if now < slot.start:
+        return '예정', 'wait', '' if authorized else '자동 허용 꺼짐', None
+    # BUSY only records the slot closing before the next arrival; it never says what the slot found.
+    inside = [h for h in holds if slot.start <= h.created_at and (slot.end is None or h.created_at < slot.end)
+              and h.detail.get('reason') != BUSY]
+    if inside:
+        reason = inside[0].detail.get('reason', '')
         if reason == 'REARRANGE_NOT_WORTH':
             return '할 일 없음', 'muted', HOLD_LABELS[reason], None
         return '보류', 'hold', HOLD_LABELS.get(reason, reason), None
+    if not authorized:  # checked before the schedule, so its HOLD may predate the slot (one record per reason)
+        return '보류', 'hold', '자동 허용 꺼짐', None
     if slot.end is not None and now >= slot.end:
         return '실행 안 함', 'muted', '', None
-    return '대기', 'wait', '실행기가 유휴일 때 검사' if authorized else '자동 허용 꺼짐', None
+    return '대기', 'wait', '실행기가 유휴일 때 검사', None
 
 
 def work_plan(rows, *, observation, now, digest):
@@ -226,13 +260,14 @@ def work_plan(rows, *, observation, now, digest):
                                state=state, tone=tone, note=note))
         result[-1]['delivery_end'] = delivery.end
     if entries:
-        authorized = current_authorization(now) is not None
-        plans = list(Plan.objects.filter(order__kind='REARRANGE', created_at__gte=min(e.expected_at for e in entries))
+        authorized, since = current_authorization(now) is not None, min(e.created_at for e in entries)  # the import
+        plans = list(Plan.objects.filter(order__kind='REARRANGE', created_at__gte=since)
                      .select_related('order', 'command').order_by('-pk'))
         plans = [p for p in plans if p.result.get('rearrangement', {}).get('automatic')]
-        holds = list(Audit.objects.filter(action=HOLD_ACTION, created_at__gte=min(e.expected_at for e in entries)).order_by('-pk'))
-        for number, slot in enumerate(slots(deliveries(entries)), start=1):
-            state, tone, note, plan = _slot_state(slot, now, plans, holds, authorized)
+        holds = list(Audit.objects.filter(action=HOLD_ACTION, created_at__gte=since).order_by('-pk'))
+        slot_list = slots(deliveries(entries))
+        for number, (slot, mine) in enumerate(zip(slot_list, slot_plans(slot_list, plans)), start=1):
+            state, tone, note, plan = _slot_state(slot, now, mine, holds, authorized)
             gap = f'입고 사이 빈 시간 {int(slot.gap.total_seconds() // 60)}분' if slot.gap is not None else '모든 입고 뒤'
             row = next((r for r in rows if plan and r['plan'].pk == plan.pk), None) or dict(
                 plan=plan, steps=[], touched=[], rehandles=[], target=None, primary_arms=[], alternate_arms=[],

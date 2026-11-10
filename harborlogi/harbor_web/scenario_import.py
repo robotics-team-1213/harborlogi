@@ -11,7 +11,7 @@ Pinky arrives, the Pinky, the container and its tier. Rows of one Pinky at one t
 first. The tier then ranks the container for placement and rearrangement (CargoPriority).
 """
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.conf import settings
@@ -33,6 +33,7 @@ EVENT_COLUMNS = ('순번', '종류', '화물 ID', '화물 이름', '단계', '�
 KINDS = {'입고': 'INBOUND', '반출': 'OUTBOUND'}
 TIERS = {'긴급': 1, '우선': 2, '일반': 3}
 MAX_AUTOMATIC_INBOUND = 16  # automatic planning is bounded per site (plan_service.make_plan)
+MAX_UNDATED_SPAN = timedelta(hours=18)  # undated times further apart than this probably cross midnight
 DEFAULT_DIMS = dict(rows=3, slots=1, levels=3, width=3)  # a 3×3 yard: one 1×3 container fills a row
 
 
@@ -231,9 +232,13 @@ def _schedule(rows, errors):
             continue
         seen.add(code)
         at = timezone.make_aware(datetime.combine(parsed[0] or today, parsed[1])) if parsed else None
-        items.append(dict(code=code, tier=tier, at=at, vehicle=vehicle, row=number))
+        items.append(dict(code=code, tier=tier, at=at, vehicle=vehicle, row=number, dated=bool(parsed and parsed[0])))
     if any(item['at'] is None for item in items):
         return items  # sheet order: the file is refused, and the presence checks still name every row
+    undated = [item['at'] for item in items if not item['dated']]
+    if undated and max(undated) - min(undated) > MAX_UNDATED_SPAN:  # 23:50 then 00:10 would sort the wrong way
+        errors.append(f'「{SCHEDULE_SHEET}」: 날짜 없는 시각이 {MAX_UNDATED_SPAN.seconds // 3600}시간 넘게 벌어져 있습니다. '
+                      '자정을 넘는 일정은 2026-11-10 23:50 처럼 날짜를 함께 적습니다.')
     first_row = {}
     for item in items:
         first_row.setdefault((item['at'], item['vehicle']), item['row'])
@@ -314,12 +319,13 @@ def import_scenario(actor, scenario, *, name):
                         vehicle=item['vehicle'], stack_position=item['stack_position'], delivery_size=item['delivery_size']))
             for item in scenario['layout'] + scenario['schedule']:
                 _record(CargoPriority(created_by=actor, cargo=Cargo.objects.get(code=item['code']), start=observation, tier=item['tier']))
-        for order in orders:  # the algorithm places inbound in event order; a person decides each one
-            if order.kind == 'INBOUND':
-                order.refresh_from_db()
-                services.make_plan(actor, order_id=order.pk, expected_version=order.version, observation_id=observation.pk, automatic=True)
+        # Before planning: the latest import decides which schedule and tiers are active (inbound_schedule.active_start).
         Audit.objects.create(actor=actor, action='scenario.import', object_type='Observation', object_id=str(observation.pk),
                              detail=dict(name=name, digest=scenario['digest'], layout=len(scenario['layout']),
                                          inbound=sum(o.kind == 'INBOUND' for o in orders), outbound=sum(o.kind == 'OUTBOUND' for o in orders),
                                          orders=[o.pk for o in orders], mode=scenario.get('mode', 'events')))
+        for order in orders:  # the algorithm places inbound in event order; a person decides each one
+            if order.kind == 'INBOUND':
+                order.refresh_from_db()
+                services.make_plan(actor, order_id=order.pk, expected_version=order.version, observation_id=observation.pk, automatic=True)
     return observation, orders
