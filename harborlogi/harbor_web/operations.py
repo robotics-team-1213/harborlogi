@@ -3,6 +3,7 @@ from django.db.models import Count, Max, Min
 from django.utils import timezone
 
 from harbor_web import services
+from harbor_web.inbound_schedule import INBOUND_PER_CONTAINER, MIN_GAP, work_plan
 from harbor_web.models import Audit, Command, Observation, Order, Plan
 from harbor_web.workspace import COMMAND_LABELS
 from harbor_web.yard_rows import DEFAULT_SLOT, place_context, place_label, slot_key, yard_rows
@@ -185,13 +186,16 @@ def operations_context(observation, *, now=None):
     for c in actual['unmatched']:
         attention.append(dict(label=f"완료 인계 · 반출 이동 대조 불가 · {_cargo_label(c.order)}", count=1,
                               action='원래 작업 대조', href=f'/work/{c.pk}/'))
+    plan_rows = work_plan(rows, observation=observation, now=now, digest=digest)  # the schedule first (ADR 0031)
     targets = {row['target'] for row in rows if row['target']}
     yard = yard_rows(observation, targets=targets, rehandles={c for row in rows for c in row['rehandles']})
     return dict(observation=observation, inventory=inventory, freshness=freshness, attention=attention,
         attention_view=[_attention_view(item, observation, commands) for item in attention], yard=yard,
         attention_total=sum(item['count'] for item in attention),
         orders=dict(inbound=counts.get('INBOUND', 0), outbound=counts.get('OUTBOUND', 0), scope='전체 등록 지시'),
-        workload=dict(plans=rows, ready_count=ready, hold_count=hold, excluded_count=excluded,
+        workload=dict(plans=plan_rows, ready_count=ready, hold_count=hold, excluded_count=excluded,
+            scheduled=any(row['kind'] == 'rearrange' for row in plan_rows),
+            rule=dict(inbound=int(INBOUND_PER_CONTAINER.total_seconds() // 60), gap=int(MIN_GAP.total_seconds() // 60)),
             rehandled_cargo_count=len(rehandled) if observation else None,
             move_count=move_count if observation else None, phase_counts=phases,
             rehandled_cargo=sorted(rehandled), outbound_plan_count=outbound_plans if observation else None,
@@ -219,6 +223,13 @@ def _job(plan, labels, slot=None):
                 if key not in touched:
                     touched.append(key)
     summary = ' · '.join(f'{phase} {counts[phase]}' for phase in ('재취급', '반출', '복귀', '입고') if counts.get(phase))
+    recommendation = plan.result.get('recommendation') if plan.result.get('status') == 'READY' else None
+    if not moves and recommendation and plan.result.get('plan_kind') == 'inbound-placement':
+        # An inbound recommendation is a place, not a move: show and mark it without counting a move (ADR 0031).
+        place = place_label(recommendation, labels, slot)
+        steps.append(dict(number=1, phase='입고', cargo=recommendation['cargo_id'], arm=None, source='반입', destination=place))
+        touched.append(slot_key(recommendation, slot or DEFAULT_SLOT))
+        summary = f'추천 자리 {place}'
     return dict(steps=steps, target=target, touched=touched,
                 rehandles=sorted({s['cargo'] for s in steps if s['phase'] == '재취급'}),
                 summary=summary or ('이동 없음' if plan.result.get('status') == 'READY' else '보류 · 부분 이동 없음'))

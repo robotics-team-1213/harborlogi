@@ -1,5 +1,5 @@
 {% extends 'base.html' %}{% block title %}시나리오 등록{% endblock %}{% block content %}
-<div class="page-head"><div><h1>시나리오 등록</h1><p>시험 시나리오의 입고 · 반출 이벤트를 엑셀 한 파일로 미리 모두 등록합니다. 입고 위치는 알고리즘이 계산하고, 사람이 결정합니다.</p></div><a class="button quiet" href="/scenarios/template.xlsx">양식 내려받기</a></div>
+<div class="page-head"><div><h1>시나리오 등록</h1><p>시험 시나리오의 입고 일정(시각 · 핑키 · 컨테이너 · 종류)을 엑셀 한 파일로 미리 모두 등록합니다. 입고 위치는 알고리즘이 계산하고, 사람이 결정합니다. 자동 재배치는 입고 사이 빈 시간과 마지막 입고 뒤에 예정합니다.</p></div><a class="button quiet" href="/scenarios/template.xlsx">양식 내려받기</a></div>
 <nav class="tabs" aria-label="화물·요청"><a href="/requests/">업무 요청</a><a href="/cargo/">화물</a><a href="/scenarios/" aria-current="page">시나리오</a></nav>
 {% if live %}<div class="notice"><strong>운영 연결 환경에서는 열지 않습니다</strong><p>시나리오는 합성 관측을 만들기 때문에 개발 · 시험 환경에서만 등록합니다.</p></div>
 {% elif not can_import %}<div class="notice"><strong>등록에는 관리자와 업무 담당 역할이 함께 필요합니다</strong><p>초기 배치 관측(관리자)과 요청(업무 담당)을 한 번에 만들기 때문입니다.</p></div>
@@ -8,7 +8,7 @@
   {{ form.as_div }}
   <div class="actions"><button type="submit">시나리오 등록</button></div>
   <p class="helptext">지금 야드: {{ dims.rows }}행{% if dims.slots > 1 %} × 한 행 {{ dims.slots }}자리(칸){% endif %} · {{ dims.levels }}층. 「초기 배치」의 행 · 칸 · 층은 이 범위 안이어야 합니다.</p>
-  <p class="helptext">한 번에 모두 등록하고, 하나라도 틀리면 아무것도 만들지 않습니다. 이후 시간차로 들어오는 이벤트는 다음 단계에서 다룹니다.</p>
+  <p class="helptext">한 번에 모두 등록하고, 하나라도 틀리면 아무것도 만들지 않습니다. 예전 양식의 「이벤트」 시트(입고 · 반출 순번)도 그대로 받습니다.</p>
 </form>{% endif %}
 <section class="panel scenario-history" aria-labelledby="scenario-history-title">
   <div class="panel-h"><h3 id="scenario-history-title">등록한 시나리오</h3><span class="scope">최근 20건</span></div>

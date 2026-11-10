@@ -125,7 +125,7 @@ def overview(request):
     from harbor_web.operations import operations_context
     operations = operations_context(observation)
     for job in operations['workload']['plans']:  # the timeline panel shows the last recorded facts of each listed job
-        job['facts'] = build_timeline(job['plan'].order)['actual_line'][-4:]
+        job['facts'] = build_timeline(job['order'])['actual_line'][-4:] if job['order'] else []
     return page(request, 'overview.html', section='overview', rows=rows, operations=operations, observations=observations,
                 observation=observation, condition=observation.condition if observation else None,
                 field_pending=FieldEpisode.objects.filter(state='OPEN').count())

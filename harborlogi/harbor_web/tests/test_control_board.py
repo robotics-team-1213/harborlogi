@@ -120,11 +120,11 @@ class ControlBoardPagesTests(TestCase):
     def test_overview_links_jobs_to_yard_slots_and_their_timeline(self):
         self.assertEqual(self.plan.result['status'], 'READY')
         html = self.client.get(f'/?observation={self.observation.pk}').content.decode()
-        for text in ('data-yard-row="yard-R1S1"', 'data-yard-row="yard-R3S1"', f'data-job="{self.plan.pk}"',
-                     f'data-job-timeline="{self.plan.pk}"', '반출 C1', 'slot-level role-target', 'slot-level role-rehandle',
+        for text in ('data-yard-row="yard-R1S1"', 'data-yard-row="yard-R3S1"', f'data-job="plan-{self.plan.pk}"',
+                     f'data-job-timeline="plan-{self.plan.pk}"', '반출 C1', 'slot-level role-target', 'slot-level role-rehandle',
                      '<b>1층</b> C1', '<b>2층</b> C2', '실제 완료량·처리율', 'id="observation-select"', '장비 상태판 · 보류'):
             self.assertIn(text, html)
-        rows = html.split(f'data-job="{self.plan.pk}" data-rows="', 1)[1].split('"', 1)[0].split()
+        rows = html.split(f'data-job="plan-{self.plan.pk}" data-rows="', 1)[1].split('"', 1)[0].split()
         self.assertIn('yard-R1S1', rows)
         self.assertIn('<span class="crumb">운영 현황</span>', html)
 

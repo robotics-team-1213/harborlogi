@@ -64,7 +64,7 @@ class WorkbookTests(SimpleTestCase):
     def test_round_trip_keeps_cells_and_sheet_names(self):
         sheets = read_xlsx(write_xlsx({'가': [['화물 ID', '층'], ['C1', '2']], 'B': [['x', '', 'z']]}))
         self.assertEqual(sheets, {'가': [['화물 ID', '층'], ['C1', '2']], 'B': [['x', '', 'z']]})
-        self.assertEqual(set(read_xlsx(scenario_import.template_workbook())), {'초기 배치', '이벤트', '설명'})
+        self.assertEqual(set(read_xlsx(scenario_import.event_template_workbook())), {'초기 배치', '이벤트', '설명'})
         with self.assertRaises(SheetError):
             read_xlsx(b'not a zip')
 
@@ -116,7 +116,7 @@ class ScenarioFlowTests(TestCase):
     def test_template_registers_layout_and_every_event_up_front(self):
         self.assertEqual(self.client.get('/scenarios/template.xlsx')['Content-Type'],
                          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        response = self.upload(scenario_import.template_workbook())
+        response = self.upload(scenario_import.event_template_workbook())
         observation = Observation.objects.get()
         self.assertRedirects(response, f'/?observation={observation.pk}', fetch_redirect_response=False)
         self.assertEqual(sorted((p['cargo_id'], p['row'], p['level']) for p in observation.payload['placements']),
@@ -138,12 +138,12 @@ class ScenarioFlowTests(TestCase):
 
     @override_settings(MODE='live')
     def test_live_mode_never_imports_synthetic_scenarios(self):
-        response = self.upload(scenario_import.template_workbook())
+        response = self.upload(scenario_import.event_template_workbook())
         self.assertContains(response, '운영 연결 환경에서는 열지 않습니다')
         self.assertFalse(Order.objects.exists())
 
     def test_inbound_waits_for_a_person_then_rearrangement_previews(self):
-        self.upload(scenario_import.template_workbook())
+        self.upload(scenario_import.event_template_workbook())
         page = self.client.get('/rearrangement/')
         self.assertContains(page, '입고 시나리오 진행 중')
         self.assertContains(page, '입고 결정 0 / 2')
@@ -163,7 +163,7 @@ class ScenarioFlowTests(TestCase):
         self.assertContains(self.client.get('/'), '입고 위치 결정됨')
 
     def test_stale_decision_is_refused(self):
-        self.upload(scenario_import.template_workbook())
+        self.upload(scenario_import.event_template_workbook())
         order = Order.objects.filter(kind='INBOUND').first()
         plan = Plan.objects.filter(order=order).latest('pk')
         self.assertEqual(self.client.post(f'/plans/{plan.pk}/', dict(action='decide', expected_version=order.version + 1)).status_code, 409)
@@ -176,7 +176,7 @@ class ScenarioFlowTests(TestCase):
         return services.create_order(self.user, cargo=cargo, kind='INBOUND', priority_group=group, sequence=sequence, tie_policy='FIXED')
 
     def test_undecidable_inbound_does_not_hold_the_rearrangement(self):
-        self.upload(scenario_import.template_workbook())
+        self.upload(scenario_import.event_template_workbook())
         observation = Observation.objects.get()
         unplanned = self._inbound('U1')  # no plan at all: nothing a person could decide
         held = self._inbound('H1')  # the latest plan is HOLD: decide_placement accepts READY only
@@ -197,7 +197,7 @@ class ScenarioFlowTests(TestCase):
     def test_a_plan_whose_basis_changed_is_undecidable_everywhere(self):
         # The decide button hides once the plan's observation expired (workspace.plan_changes). Such a request must
         # not keep the rearrangement waiting, and the server must refuse it the same way (review of #44).
-        self.upload(scenario_import.template_workbook())
+        self.upload(scenario_import.event_template_workbook())
         order = Order.objects.filter(kind='INBOUND').order_by('pk').first()
         plan = Plan.objects.filter(order=order).latest('pk')
         with patch('django.utils.timezone.now', return_value=timezone.now() + timedelta(seconds=1801)):  # max age 1800 s
@@ -216,7 +216,7 @@ class ScenarioFlowTests(TestCase):
         self.assertFalse(Audit.objects.filter(action=DECIDE_ACTION).exists())
 
     def test_a_hand_planned_inbound_whose_queue_changed_waits_for_a_new_calculation_not_a_person(self):
-        self.upload(scenario_import.template_workbook())
+        self.upload(scenario_import.event_template_workbook())
         manual = self._inbound('M1')  # planned by hand: a queue change does not re-plan it
         services.make_plan(self.user, order_id=manual.pk, expected_version=manual.version, observation_id=Observation.objects.get().pk)
         self.assertIn(manual.pk, [row['order'].pk for row in inbound_progress()['waiting']])  # fresh: a person can decide it
@@ -230,7 +230,7 @@ class ScenarioFlowTests(TestCase):
                          [(manual.pk, '요청이나 대기열이 바뀜 · 다시 계산 필요'), (later.pk, '계획 없음 · 계산 필요')])
 
     def test_an_older_plan_points_to_the_newest_instead_of_offering_a_refused_decision(self):
-        self.upload(scenario_import.template_workbook())
+        self.upload(scenario_import.event_template_workbook())
         manual = self._inbound('M1')
         observation = Observation.objects.get()
         first = services.make_plan(self.user, order_id=manual.pk, expected_version=manual.version, observation_id=observation.pk)
@@ -244,7 +244,7 @@ class ScenarioFlowTests(TestCase):
         for i in range(15):
             self._inbound(f'A{i}')
         Order.objects.update(auto_replan=True)
-        response = self.upload(scenario_import.template_workbook(), name='S2')
+        response = self.upload(scenario_import.event_template_workbook(), name='S2')
         self.assertContains(response, '자동 계획 한도 16건 중 15건을 이전 요청이 쓰고 있어 입고 2건을 더 등록할 수 없습니다.')
         self.assertFalse(Observation.objects.exists())
 
@@ -255,7 +255,7 @@ class ScenarioFlowTests(TestCase):
         def spy(*args, **kwargs):
             owned_at_atomic.append(queue_lock._is_owned())
             return real_atomic(*args, **kwargs)
-        scenario, errors = scenario_import.parse_workbook(scenario_import.template_workbook())
+        scenario, errors = scenario_import.parse_workbook(scenario_import.event_template_workbook())
         self.assertEqual(errors, [])
         with patch.object(scenario_import.transaction, 'atomic', spy):
             scenario_import.import_scenario(self.user, scenario, name='S1')
@@ -268,7 +268,7 @@ class ScenarioFlowTests(TestCase):
         for i in range(15):
             self._inbound(f'A{i}')
         Order.objects.update(auto_replan=True)
-        scenario, _ = scenario_import.parse_workbook(scenario_import.template_workbook())  # 2 inbound
+        scenario, _ = scenario_import.parse_workbook(scenario_import.event_template_workbook())  # 2 inbound
         with self.assertRaises(ValidationError) as caught:
             scenario_import.import_scenario(self.user, scenario, name='S2')
         self.assertIn('자동 계획 한도 16건 중 15건을 이전 요청이 쓰고 있어 입고 2건을 더 등록할 수 없습니다.', caught.exception.messages[0])
@@ -302,5 +302,5 @@ class SiteScenarioTests(TestCase):
         self.assertIn('「초기 배치」 2행: 칸은 1~2입니다.', errors)
         self.assertIn('「초기 배치」 K8: 2행 2칸 1층이 비어 있어 받칠 수 없습니다.', errors)
         template = read_xlsx(self.client.get('/scenarios/template.xlsx').content)
-        self.assertIn(['C4', '옆 자리 화물', '1', '2', '1'], template['초기 배치'])
+        self.assertIn(['C4', '옆 자리 화물', '1', '2', '1', '우선'], template['초기 배치'])
         self.assertContains(self.client.get('/scenarios/'), '3행 × 한 행 2자리(칸) · 3층')

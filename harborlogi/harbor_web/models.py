@@ -142,6 +142,30 @@ class Order(Authored):
         ]
 
 
+class ScheduledInbound(Immutable):
+    """One container of the scenario sheet 「입고 일정」: when its Pinky arrives and where it sits on it (ADR 0031).
+
+    Containers that arrive together on one Pinky share expected_at and vehicle; position 1 is the top one, stored
+    first. `start` is the scenario's start observation, so the rows of one import form one schedule.
+    """
+    order = models.OneToOneField(Order, on_delete=models.PROTECT, related_name='scheduled_inbound')
+    start = models.ForeignKey(Observation, on_delete=models.PROTECT, related_name='+')
+    expected_at = models.DateTimeField()
+    vehicle = models.CharField(max_length=32)
+    stack_position = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
+    delivery_size = models.PositiveSmallIntegerField(validators=[MinValueValidator(1)])
+
+
+class CargoPriority(Immutable):
+    """긴급 · 우선 · 일반 of a container registered with an inbound schedule (ADR 0031 decision 3).
+
+    Planning ranks a container that has no outbound request by its latest tier, with no order inside the tier.
+    """
+    cargo = models.ForeignKey(Cargo, on_delete=models.PROTECT, related_name='priorities')
+    start = models.ForeignKey(Observation, on_delete=models.PROTECT, related_name='+')
+    tier = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(3)])
+
+
 class RearrangeAuthorization(Authored):
     """Standing permission for automatic R2 rearrangement (design 32, ADR0017 decision 4).
 

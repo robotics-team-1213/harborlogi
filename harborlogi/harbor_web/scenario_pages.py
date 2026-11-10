@@ -9,15 +9,15 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.views.decorators.http import require_http_methods
 
-from harbor_web import scenario_import, services
+from harbor_web import inbound_schedule, scenario_import, services
 from harbor_web.auth import has_role, require_roles
-from harbor_web.models import Audit
+from harbor_web.models import Audit, ScheduledInbound
 from harbor_web.views import page
 
 
 class ScenarioForm(forms.Form):
     name = forms.CharField(label='시나리오 이름', max_length=40, help_text='예: S2-긴급입고. 관측 출처 이름과 요청 메모에 남습니다.')
-    workbook = forms.FileField(label='시나리오 파일 (.xlsx)', help_text='양식의 「초기 배치」 · 「이벤트」 시트를 채워 올리세요. 2 MB 이하.')
+    workbook = forms.FileField(label='시나리오 파일 (.xlsx)', help_text='양식의 「초기 배치」 · 「입고 일정」 시트를 채워 올리세요. 2 MB 이하.')
 
     def clean_name(self):
         name = self.cleaned_data['name'].strip()
@@ -40,8 +40,14 @@ def scenarios(request):
                 errors = getattr(error, 'messages', [str(error)])
             else:
                 inbound = sum(order.kind == 'INBOUND' for order in orders)
-                messages.success(request, f'시나리오를 등록했습니다: 초기 배치 관측 #{observation.pk}, 요청 {len(orders)}건'
-                                          f'(입고 {inbound} · 반출 {len(orders) - inbound}). 입고 위치는 알고리즘이 계산했고, 결정을 기다립니다.')
+                if scenario['mode'] == 'schedule':
+                    trips = inbound_schedule.deliveries(ScheduledInbound.objects.filter(start=observation))
+                    messages.success(request, f'입고 일정을 등록했습니다: 초기 배치 현황 #{observation.pk}, 입고 {inbound}건'
+                                              f'(핑키 배송 {len(trips)}번) · 자동 재배치 예정 {len(inbound_schedule.slots(trips))}번. '
+                                              '입고 위치는 알고리즘이 계산했고, 결정을 기다립니다.')
+                else:
+                    messages.success(request, f'시나리오를 등록했습니다: 초기 배치 관측 #{observation.pk}, 요청 {len(orders)}건'
+                                              f'(입고 {inbound} · 반출 {len(orders) - inbound}). 입고 위치는 알고리즘이 계산했고, 결정을 기다립니다.')
                 return redirect(f'/?observation={observation.pk}')
     history = Audit.objects.filter(action='scenario.import').select_related('actor').order_by('-pk')[:20]
     return page(request, 'scenarios.html', section='cargo', form=form, errors=errors, history=history, live=live, dims=dims,

@@ -12,6 +12,7 @@ from django.utils import timezone
 from harbor_web import commands, services
 from harbor_web.command_models import ACTIVE_COMMAND_STATES
 from harbor_web.coordination import serialized
+from harbor_web.inbound_schedule import rearrange_gate
 from harbor_web.models import Audit, CargoFootprint, Command, Observation, Order, Plan, RearrangeAuthorization
 from harbor_web.order_queue import open_outbound_orders
 
@@ -136,6 +137,9 @@ def auto_check(now=None):
         return _hold_with(None, 'AUTHORIZATION_OFF_OR_EXPIRED')
     if _automatic_today(now) >= auth.daily_limit:
         return _hold_with(auth, 'DAILY_LIMIT_REACHED')
+    busy, cap = rearrange_gate(now)  # an inbound schedule leaves only its slots (ADR 0031 decision 4)
+    if busy:
+        return _hold_with(auth, busy)
     if outbound_pending():
         return _hold_with(auth, 'OUTBOUND_PENDING')
     if Command.objects.filter(state__in=ACTIVE_COMMAND_STATES).exists():
@@ -146,7 +150,8 @@ def auto_check(now=None):
     last = Plan.objects.filter(order__kind='REARRANGE').order_by('-pk').first()
     if last and last.observation_id == observation.pk and last.queue_digest == services.queue_digest():
         return 'ALREADY_PLANNED'  # One automatic try per observation and queue state.
-    options = _options(k=auth.k, max_moves=auth.max_moves, automatic=True, authorization_id=auth.pk)
+    options = _options(k=auth.k, max_moves=auth.max_moves if cap is None else min(auth.max_moves, cap), automatic=True,
+                       authorization_id=auth.pk)
     try:
         proposal = rearrange_proposal(observation, options, now=now)  # HOLD reasons: holding, stale, not worth.
     except ValidationError:

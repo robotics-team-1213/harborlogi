@@ -11,7 +11,7 @@ from django.utils import timezone
 from harbor.model import OutboundRequest, aware_time
 from harbor.outbound import plan_outbound, OutboundProposal
 from harbor_web.coordination import serialized
-from harbor_web.models import CargoFootprint, Observation, Order, Plan, Audit
+from harbor_web.models import CargoFootprint, CargoPriority, Observation, Order, Plan, Audit
 from harbor_web.service_common import Conflict, _domain, _role, _save
 from harbor_web.site_config import constraints, snapshot, spatial_policy, spatial_snapshot
 from harbor_web.order_queue import open_outbound_orders, queue_digest, queue_snapshot, request_snapshot
@@ -56,6 +56,9 @@ def _outbound_schedule():
     # Completed orders still rank their cargo for rearrangement (design 32); only blocking uses open orders.
     for outgoing in Order.objects.filter(kind='OUTBOUND').select_related('cargo').order_by('priority_group', 'sequence', 'pk'):
         schedule.setdefault(outgoing.cargo.code, (outgoing.priority_group, outgoing.sequence if outgoing.tie_policy == 'FIXED' else None))
+    # A container registered with an inbound schedule and no outbound request leaves by its tier (ADR 0031 decision 3).
+    for priority in CargoPriority.objects.select_related('cargo').order_by('-pk'):
+        schedule.setdefault(priority.cargo.code, (priority.tier, None))
     return schedule
 
 
