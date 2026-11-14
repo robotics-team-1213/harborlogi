@@ -49,6 +49,7 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--transport-only', action='store_true', help='Verify neutral TRIP without the Cell compiler')
     mode.add_argument('--arm-only', action='store_true', help='Verify neutral ARM with an independent observer and real UDS')
+    mode.add_argument('--evidence-only', action='store_true', help='Verify immutable physical evidence and single-move business confirmation')
     mode.add_argument('--web-arm-only', action='store_true', help='Verify authenticated Django over actual Fleet HTTP')
     mode.add_argument('--full-flow', action='store_true', help='Run the first flow stages on one Fleet serving TRIP and ARM (D-927)')
     mode.add_argument('--arm-via-r', action='store_true',
@@ -69,6 +70,7 @@ def main(argv=None):
     app_root = Path(__file__).resolve().parents[2]
     app_sha = app_checkout(app_root)
     platform_sha = verify_checkout(args.platform_root, args.platform_sha)
+    arm_mode = args.arm_only or args.web_arm_only or args.evidence_only
     sys.path.insert(0, str(app_root))
     # Loaded by path only here: the harness needs the platform's test dependencies.
     arm = args.arm_only or args.web_arm_only or args.full_flow or args.arm_via_r
@@ -87,6 +89,8 @@ def main(argv=None):
                  harness.ArmFleet(root=args.platform_root, workdir=Path(temporary) / 'fleet', request_key_path=request_key_path,
                                   sim=args.sim_arm) if (args.arm_only or args.web_arm_only) else
                  harness.RealFleet(root=args.platform_root, workdir=Path(temporary) / 'fleet', transport_only=args.transport_only))
+        if args.evidence_only:
+            fleet.include_joint_evidence = True
         try:
             fleet.start()
             ref, artifact = {}, None

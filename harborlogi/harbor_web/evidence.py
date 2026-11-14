@@ -8,8 +8,6 @@ this module is the intake store and adapter, never a producer and never an autho
 only the BusinessLedger's own binding rules turn a submission into business progress.
 """
 from datetime import datetime, timedelta
-import json
-from pathlib import Path
 from harbor.ledger import ReadOnlyLedger
 import os
 
@@ -140,4 +138,30 @@ def intake_provider():
                 continue
             return MoveEvidence(placement, retreat)
         return None
+    return evidence
+
+
+def physical_provider():
+    """Read original Fleet closure facts for a current step; final evidence stays separate."""
+    from harbor.physical_evidence import fleet_move_evidence
+    from harbor.process import ArmTransferBinding
+    sources = configured_sources()
+    if sources is None or any(len(group) != 1 for group in sources):
+        raise ValueError('Physical evidence requires one installed placement and retreat source')
+    placement_source, retreat_source = sources[0][0], sources[1][0]
+
+    def evidence(command, row, payload, phase):
+        if phase == 'final':
+            return None
+        if phase != 'step':
+            raise ValueError(phase)
+        if (row['state'] != 'WAITING' or not row['goal_confirmed']
+                or payload.get('execution_kind') != 'ARM_TRANSFER'
+                or row['mission_id'] is None or row['attempt_id'] is None):
+            return None
+        from harbor_web.commands import acquire_registry
+        binding = ArmTransferBinding(**payload['moves'][row['step_index']])
+        return fleet_move_evidence(acquire_registry().client, binding,
+            f"{row['request_key']}:{row['step_index']}", mission_id=row['mission_id'],
+            revision=payload['revision'], placement_source=placement_source, retreat_source=retreat_source)
     return evidence

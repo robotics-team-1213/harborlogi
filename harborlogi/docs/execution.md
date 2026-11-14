@@ -1,5 +1,15 @@
 # 공정 제안과 업무 장부 사용법
 
+## 원본 물리 근거 provider (D-915)
+
+`HARBOR_EXECUTOR_EVIDENCE=physical`은 기존 실행기에 원본 Fleet closure 증거를 읽는 provider를 선택한다. 기본값은 꺼짐이다. 서버 환경의 `HARBOR_PLACEMENT_SOURCES`와 `HARBOR_RETREAT_SOURCES`에는 서로 다른 설치 출처를 각각 하나씩 지정한다. 어느 팔이 움직였는지는 Fleet이 고르므로 Harbor는 팔 대응 설정을 두지 않고, 시도에 참여한 팔마다 Fleet의 해제 구역·AT_TARGET_AND_CLEAR 판정·빈 그리퍼를 퇴피 근거로 쓴다. receipt와 원문 SHA가 다르거나 실행 시도가 다르면 단계 확인에 쓰지 않는다. Harbor에는 observer 토큰을 공급하지 않고 기존 전용 Fleet service 신원을 사용한다.
+
+이 provider는 `WAITING`인 현재 ARM 단계에서만 근거를 공급한다. 마지막 이동 확인 뒤 상태는 `AWAITING_FINAL_EVIDENCE`이며 `final` 요청에는 근거를 반환하지 않는다. `finish()`에는 별도 최종 업무 근거가 필요하다. 운영 producer·실제 Gazebo 시계 변환·실물 수용은 아직 검증하지 않았다.
+
+개발 HTTP 경로는 기존 `tools.integration.real_fleet_http`에 `--evidence-only --app-python <isolated-harbor-python>`을 전달해 실행한다. 고정 플랫폼 SHA와 깨끗한 양 끝 checkout이 필요하다. 별도 소비자 프로세스가 실제 Fleet HTTP와 UDS를 사용하지만, 이 모드의 측정값은 합성 fixture다. Gazebo 물리 관측이나 장치 수용 결과로 해석하지 않는다.
+
+## 기존 공정과 장부
+
 필요한 플랫폼 계약은 D-836, API reference v1.292다. 후보 이송은 simulation profile의 기존 named operator 접수다. 기존 단일 `robot_id` 호출은 플랫폼에서 계속 지원한다.
 
 1. `plan_outbound`로 관측 revision에 결속한 순수 반출 제안을 만든다.

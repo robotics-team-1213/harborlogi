@@ -1,5 +1,7 @@
 # 물리 관측 연동의 수용 조건
 
+2026-10-29 개발 상태: D-915/API v1.330의 불변 원문 proof를 소비하는 `PhysicalEvidenceAdapter`와 선택형 executor provider를 구현했다([설정과 제한](execution.md#원본-물리-근거-provider-d-915)). 원문 hash·측정 시각·A/B owner 대응·관련 팔 coverage를 검사한다. 실제 HTTP 검증, 운영 관측 생산자, Gazebo 원본 시계 결속과 실물 수용은 각각 별도 근거가 필요하다. 아래의 이전 미구현 서술은 당시 조사 이력이며, 이 구현으로 운영 수용이 끝났다는 뜻은 아니다.
+
 2026-10-25 재대조: 중립 ARM 시뮬레이션 API에는 독립 observer의 실행 전후 관측과 `physical-receipt`가 이미 구현돼 있다. 아래 구버전 비교표는 조사 이력이며, 현행 호출과 Fleet 승인 UI는 [파이프라인 설계](design/18-harbor-rosy-pipeline.md)를 따른다. 미완료 범위는 운영 관측·Harbor 업무용 배치/복귀/관련 팔 퇴피 어댑터·다칸 설치 대응·실물 수용이다. 물리 receipt의 존재만으로 이 범위를 충족하지 않는다.
 
 Harbor는 실제 Fleet HTTP를 소비하지만, 물리 관측을 `MoveEvidence`(내려놓기 `PlacementEvidence` + 퇴피 `RetreatEvidence`, ADR 0005 결정 6)로 변환하는 운영 어댑터는 아직 없다. 이 문서는 그 어댑터의 입력·소유·수용 조건이며, 관측 wire schema나 장치 활성화 계약을 새로 정의하지 않는다.
