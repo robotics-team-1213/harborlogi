@@ -1,6 +1,6 @@
 {% if yard_occupancy %}<section class="yard-occupancy" data-yard-occupancy aria-labelledby="occupancy-title">
-  <h3 id="occupancy-title">행별 적재 · 재취급 예정</h3>
-  <p class="helptext" data-occupancy-basis>{% if source %}관측 #{{ source.pk }}의 배치를 야드 행별로 묶었습니다. {% endif %}1×3 컨테이너는 한 행을 다 차지하고, 한 층이 여러 화물로 나뉜 행은 칸 수를 함께 적습니다. 재취급 예정은 저장된 계획의 이동 중 재취급 단계 화물이며 계획 기준 · 실적 아님입니다.</p>
+  <h3 id="occupancy-title">자리별 적재 · 재취급 예정</h3>
+  <p class="helptext" data-occupancy-basis>{% if source %}관측 #{{ source.pk }}의 배치를 1×3 자리별로 묶었습니다. {% endif %}컨테이너 하나가 한 자리를 차지하고, 한 층이 여러 화물로 나뉜 자리는 ‘일부 칸’으로 표시합니다. 재취급 예정은 저장된 계획의 이동 중 재취급 단계 화물이며 계획 기준 · 실적 아님입니다.</p>
   {% if yard_occupancy.has_moves %}<p data-occupancy-rehandle role="status">재취급 예정 화물 {{ yard_occupancy.rehandle_cargo|length }}개{% if yard_occupancy.rehandle_cargo %} · {{ yard_occupancy.rehandle_cargo|join:', ' }}{% endif %}</p>{% else %}<p data-occupancy-rehandle role="status">{% if plan and plan.result.status != 'READY' %}계획이 READY가 아니어서 재취급 예정 칸을 표시하지 않습니다.{% elif plan %}저장된 계획에 이동이 없어 재취급 예정 칸이 없습니다.{% else %}계획이 없어 재취급 예정 칸을 표시하지 않습니다.{% endif %}</p>{% endif %}
   {% include 'yard_rows.html' with yard=yard_rows %}
 </section>{% endif %}

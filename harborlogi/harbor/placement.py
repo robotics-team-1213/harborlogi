@@ -91,6 +91,8 @@ def plan_placement(snapshot: SpatialSnapshot, incoming: CargoShape, policy: Spat
             for column in range(1, area.columns+1):
                 for level in range(1, area.levels+1):
                     for orientation in ((0, 90) if incoming.length_cells > 1 else (0,)):
+                        if not policy.aligned(row, column, orientation):
+                            continue
                         examined += 1
                         if examined > PLACEMENT_CANDIDATE_LIMIT:
                             return hold('PLACEMENT_SEARCH_LIMIT_REACHED')

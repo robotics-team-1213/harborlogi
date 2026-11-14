@@ -57,7 +57,7 @@ def main():
         stages.last.click()
         page.wait_for_function('() => document.querySelector("[data-yard-3d] canvas").dataset.moving === "false"')
         page.locator('[data-yard-view=flat]').click()
-        capture('05-restoration-plane.png','복귀 후 예상 배치의 층별 평면 보기','[data-yard-flat]')
+        capture('05-restoration-plane.png','복귀 후 예상 배치의 자리 평면 보기','[data-yard-flat]')
         capture('06-execution-evidence.png','ROSY 인계 제한과 업무 완료 근거의 구분','#execution')
         page.locator('#navigation').get_by_role('link',name='반출 관제',exact=True).focus()
         page.get_by_role('tooltip').wait_for(state='visible')

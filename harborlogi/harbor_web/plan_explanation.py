@@ -4,19 +4,17 @@ from copy import deepcopy
 from harbor_web.models import Plan
 from harbor_web.recommendation_view import explain_optimization
 from harbor_web.yard_occupancy import AREA_LABELS
-from harbor_web.yard_rows import place_label
+from harbor_web.yard_rows import place_context, placement_text, route_text
 
 
-def _location(value):
+def _location(value, labels=None, slot=None):
     if value is None:
         return None
     location = dict(value)
     if 'area_id' in location:
         # Read by rows like the yard plan: a 1×3 container fills its row, so only a narrower cargo needs its column.
-        label = place_label(location, AREA_LABELS)
-        if location['column'] != 1 or location.get('orientation', 0) != 0:
-            label += f" · {location['column']}열" + (f" · {location['orientation']}°" if location.get('orientation', 0) else '')
-        location['label'] = label
+        # A site with fixed slots names the slot instead ('1행 2칸 1층'); turns and covered cells are fixed there.
+        location['label'] = placement_text(location, labels or AREA_LABELS, slot)
     else:
         location['label'] = f"{location['bay_id']} · {location['level']}단"
     return location
@@ -24,18 +22,22 @@ def _location(value):
 
 def _current(plan):
     result, payload = plan.result, plan.observation.payload
+    labels, slot = place_context(plan.condition.payload)
+
+    def where(value):
+        return _location(value, labels, slot)
     request = result.get('request_snapshot') or {}
     target = request.get('cargo_code', plan.order.cargo.code)
     shapes = {s['cargo_id']: dict(s) for s in result.get('source_shapes', [])}
     observed = {}
     for item in payload.get('placements', []):
-        observed[item['cargo_id']] = _location(item)
+        observed[item['cargo_id']] = where(item)
         shapes.setdefault(item['cargo_id'], dict(cargo_id=item['cargo_id'],
             footprint_revision=item.get('footprint_revision')))
     stacks = {b['bay_id']: list(b['cargo']) for b in payload.get('bays', [])}
     for bay, cargoes in stacks.items():
         for level, cargo in enumerate(cargoes, 1):
-            observed[cargo] = _location(dict(bay_id=bay, level=level))
+            observed[cargo] = where(dict(bay_id=bay, level=level))
     incoming = result.get('incoming_shape')
     if incoming:
         shapes[incoming['cargo_id']] = dict(incoming)
@@ -53,14 +55,14 @@ def _current(plan):
             phase = ('반출' if cargo == target else '재취급' if outbound_index is not None
                      and index < outbound_index else '복귀' if outbound_index is not None else '이동')
         if move.get('source_placement'):
-            source = _location(move['source_placement'])
-            destination = _location(move['destination_placement'])
+            source = where(move['source_placement'])
+            destination = where(move['destination_placement'])
         else:
             source_stack = stacks.get(move['source'], [])
             level = source_stack.index(cargo) + 1 if cargo in source_stack else None
-            source = _location(dict(bay_id=move['source'], level=level))
+            source = where(dict(bay_id=move['source'], level=level))
             destination_stack = stacks.setdefault(move['destination'], [])
-            destination = _location(dict(bay_id=move['destination'], level=len(destination_stack) + 1))
+            destination = where(dict(bay_id=move['destination'], level=len(destination_stack) + 1))
             if cargo in source_stack:
                 source_stack.remove(cargo)
             destination_stack.append(cargo)
@@ -73,18 +75,26 @@ def _current(plan):
             primary_arm=move.get('primary_arm'), alternate_arms=list(move.get('alternate_arms', []))))
     if (request.get('kind', plan.order.kind) == 'INBOUND' and result.get('status') == 'READY'
             and result.get('recommendation')):
-        destination = _location(result['recommendation'])
+        destination = where(result['recommendation'])
         routes[target] = dict(cargo_id=target, kind='intake-recommendation', role='입고 배치 추천',
             observed_source=observed.get(target), footprint_revision=(incoming or {}).get('footprint_revision'),
             shape=incoming, locations=[p for p in [observed.get(target), destination] if p], steps=[])
     for route in routes.values():
         route['route_label'] = ' → '.join(p['label'] for p in route['locations'])
-    return dict(routes=list(routes.values()), pins=pins, move_count=len(moves),
+    optimization = explain_optimization(result.get('optimization'))
+    for candidate in (optimization or {}).get('alternatives') or []:
+        steps = candidate.get('moves') if isinstance(candidate, dict) else None
+        for move in steps if isinstance(steps, list) else []:
+            try:
+                move['route'] = route_text(move, labels, slot)
+            except (KeyError, TypeError):
+                pass  # a malformed saved candidate keeps its raw address text
+    return dict(routes=list(routes.values()), pins=pins, move_count=len(moves), slots=bool(slot),
         outbound_count=sum(s['phase'] == '반출' for r in routes.values() for s in r['steps']),
         rehandle_count=sum(any(s['phase'] == '재취급' for s in r['steps']) for r in routes.values()),
         restore_count=sum(s['phase'] == '복귀' for r in routes.values() for s in r['steps']),
           status=result.get('status', ''), comparison=None,
-          optimization=explain_optimization(result.get('optimization')))
+          optimization=optimization)
 
 
 def explain_plan(plan):

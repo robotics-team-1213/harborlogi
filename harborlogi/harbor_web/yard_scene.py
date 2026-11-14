@@ -22,6 +22,12 @@ def present_stage(stage, payload):
             area_id = source.get('area_id', source.get('bay_id', 'yard'))
             item = stage['area_presentation'][area_id]
             source.update(area_label=item['label'], x=item['x'], y=item['y'])
+    stage['slot_cells'] = payload.get('slot_cells')
+    if stage.get('spatial') and stage.get('layout') and payload.get('slot_cells'):
+        # A site with fixed container slots reads slots, not cells (KAN-115); other sites keep the cell grid
+        # because their cargo sizes and turns vary.
+        from harbor_web.yard_rows import slot_map_from_stage
+        stage['slot_map'] = slot_map_from_stage(stage, payload)
     return stage
 
 
@@ -76,4 +82,4 @@ def scene_for(stages):
                 for cell in bay['cells'] if cell['code'])
         frames.append(dict(index=stage['index'], label=stage['label'], boxes=boxes, move=deepcopy(stage.get('move'))))
     return dict(areas=[{k: a[k] for k in ('id', 'label', 'rows', 'columns', 'levels', 'x', 'y', 'addresses')} for a in areas],
-        frames=frames)
+        frames=frames, slot_cells=first.get('slot_cells'))

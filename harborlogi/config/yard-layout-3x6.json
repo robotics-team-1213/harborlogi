@@ -1,0 +1,25 @@
+{
+  "rows": 3,
+  "columns": 6,
+  "levels": 3,
+  "cells": [
+    {"bay_id": "Y11", "row": 1, "column": 1},
+    {"bay_id": "Y12", "row": 1, "column": 2},
+    {"bay_id": "Y13", "row": 1, "column": 3},
+    {"bay_id": "Y14", "row": 1, "column": 4},
+    {"bay_id": "Y15", "row": 1, "column": 5},
+    {"bay_id": "Y16", "row": 1, "column": 6},
+    {"bay_id": "Y21", "row": 2, "column": 1},
+    {"bay_id": "Y22", "row": 2, "column": 2},
+    {"bay_id": "Y23", "row": 2, "column": 3},
+    {"bay_id": "Y24", "row": 2, "column": 4},
+    {"bay_id": "Y25", "row": 2, "column": 5},
+    {"bay_id": "Y26", "row": 2, "column": 6},
+    {"bay_id": "Y31", "row": 3, "column": 1},
+    {"bay_id": "Y32", "row": 3, "column": 2},
+    {"bay_id": "Y33", "row": 3, "column": 3},
+    {"bay_id": "Y34", "row": 3, "column": 4},
+    {"bay_id": "Y35", "row": 3, "column": 5},
+    {"bay_id": "Y36", "row": 3, "column": 6}
+  ]
+}

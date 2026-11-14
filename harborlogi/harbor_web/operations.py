@@ -5,7 +5,7 @@ from django.utils import timezone
 from harbor_web import services
 from harbor_web.models import Audit, Command, Observation, Order, Plan
 from harbor_web.workspace import COMMAND_LABELS
-from harbor_web.yard_rows import place_label, yard_rows
+from harbor_web.yard_rows import DEFAULT_SLOT, place_context, place_label, slot_key, yard_rows
 
 ATTENTION_STATES = ('UNKNOWN', 'DISPATCHING', 'CANCEL_PENDING', 'BLOCKED')
 HANDOFF_REASONS = {
@@ -28,23 +28,26 @@ def _inventory(observation):
     snapshot = services.snapshot(observation)
     areas = []
     presentation = services.area_presentation(policy) if spatial else {}
+    slot = policy.get('slot_cells') if spatial else None  # fixed 1×3 slots: count containers, not cells (KAN-115)
     if spatial:
         for area in snapshot.areas:
             placements = [p for p in snapshot.placements if p.area_id == area.area_id]
             areas.append(dict(id=area.area_id, cargo_count=len(placements),
-                occupied=sum(len(snapshot.cells(p)) for p in placements),
-                capacity=area.rows * area.columns * area.levels))
+                occupied=len(placements) if slot else sum(len(snapshot.cells(p)) for p in placements),
+                capacity=area.rows * (area.columns // slot) * area.levels if slot else area.rows * area.columns * area.levels))
     else:
         areas = [dict(id=b.bay_id, cargo_count=len(b.cargo), occupied=len(b.cargo),
                       capacity=b.capacity) for b in snapshot.bays]
     for area in areas:
         area['label'] = presentation.get(area['id'], {}).get('label', area['id'])
         area['role'] = '임시 장치' if area['id'] in temporary else '반출대' if area['id'] in outbound else '보관'
-    occupied, capacity = sum(a['occupied'] for a in areas), sum(a['capacity'] for a in areas)
+    counted = [a for a in areas if a['role'] == '보관'] if slot else areas  # with slots the rate is the yard's own
+    occupied, capacity = sum(a['occupied'] for a in counted), sum(a['capacity'] for a in counted)
     return dict(known=True, spatial=spatial, cargo_count=sum(a['cargo_count'] for a in areas),
-        occupied=occupied, capacity=capacity,
+        occupied=occupied, capacity=capacity, slots=bool(slot),
         occupancy_percent=round(occupied * 100 / capacity) if capacity else None,
-        unit='격자 칸' if spatial else '적재 자리', areas=areas,
+        unit='자리' if slot else '격자 칸' if spatial else '적재 자리', areas=areas,
+        auxiliary=[a for a in areas if a['role'] != '보관'] if slot else [],
         storage_count=sum(a['cargo_count'] for a in areas if a['role'] == '보관'),
         temporary_count=sum(a['cargo_count'] for a in areas if a['role'] == '임시 장치'),
         outbound_count=sum(a['cargo_count'] for a in areas if a['role'] == '반출대'),
@@ -129,10 +132,10 @@ def operations_context(observation, *, now=None):
         'order__cargo', 'observation__condition', 'condition').order_by('-pk')
     rows, rehandled = [], set()
     phases = {'재취급': 0, '반출': 0, '복귀': 0, '입고': 0}
-    ready = hold = excluded = move_count = outbound_plans = outbound_rehandles = 0
+    ready = hold = excluded = move_count = outbound_plans = outbound_rehandles = rehandle_plans = 0
     digest = services.queue_digest()
-    labels = {k: v.get('label', k) for k, v in services.area_presentation(observation.condition.payload).items()} \
-        if observation is not None and observation.payload.get('schema') == 'grid-placement-v1' else {}
+    labels, slot = place_context(observation.condition.payload) \
+        if observation is not None and observation.payload.get('schema') == 'grid-placement-v1' else ({}, None)
     for plan in latest:
         if plan.order_id in commanded or observation is None or plan.observation_id != observation.pk or plan.condition_id != observation.condition_id:
             continue
@@ -144,7 +147,7 @@ def operations_context(observation, *, now=None):
         primary = sorted({m['primary_arm'] for m in moves if m.get('primary_arm')})
         alternate = sorted({a for m in moves for a in m.get('alternate_arms', [])} - set(primary))
         rows.append(dict(plan=plan, stale=stale, included=included, status=status, cargo=_cargo_label(plan.order),
-                         primary_arms=primary, alternate_arms=alternate, **_job(plan, labels)))
+                         primary_arms=primary, alternate_arms=alternate, **_job(plan, labels, slot)))
         if status == 'HOLD':
             hold += 1
         elif not included:
@@ -156,6 +159,7 @@ def operations_context(observation, *, now=None):
         outbound = plan.order.kind == 'OUTBOUND'
         outbound_plans += outbound
         code = plan.order.cargo and plan.order.cargo.code
+        rehandle_plans += outbound and any(phase == '재취급' for phase in move_phases(plan, plan.order))
         for move, phase in zip(moves, move_phases(plan, plan.order)):
             phases[phase] = phases.get(phase, 0) + 1
             outbound_rehandles += outbound and phase == '재취급'
@@ -192,12 +196,13 @@ def operations_context(observation, *, now=None):
             move_count=move_count if observation else None, phase_counts=phases,
             rehandled_cargo=sorted(rehandled), outbound_plan_count=outbound_plans if observation else None,
             outbound_rehandle_moves=outbound_rehandles if observation else None,
+            outbound_rehandle_plans=rehandle_plans if observation else None,
             rehandle_per_outbound=round(outbound_rehandles / outbound_plans, 1) if observation and outbound_plans else None),
         handoffs=handoffs, actual=actual)
 
 
-def _job(plan, labels):
-    """Steps, marks and touched rows of one stored plan; read from its moves, never recomputed."""
+def _job(plan, labels, slot=None):
+    """Steps, marks and touched slots of one stored plan; read from its moves, never recomputed."""
     moves = plan.result.get('moves', []) if plan.result.get('status') == 'READY' else []
     phases = move_phases(plan, plan.order)
     target = plan.order.cargo.code if plan.order.cargo_id and plan.order.kind == 'OUTBOUND' else None
@@ -205,12 +210,12 @@ def _job(plan, labels):
     for number, (move, phase) in enumerate(zip(moves, phases), start=1):
         source, destination = move.get('source_placement'), move.get('destination_placement')
         steps.append(dict(number=number, phase=phase, cargo=move['cargo_id'], arm=move.get('primary_arm'),
-            source=place_label(source, labels) if 'source_placement' in move else move.get('source', '—'),
-            destination=place_label(destination, labels) if 'destination_placement' in move else move.get('destination', '—')))
+            source=place_label(source, labels, slot) if 'source_placement' in move else move.get('source', '—'),
+            destination=place_label(destination, labels, slot) if 'destination_placement' in move else move.get('destination', '—')))
         counts[phase] = counts.get(phase, 0) + 1
         for placement in (source, destination):
             if placement and phase in ('재취급', '반출', '입고'):
-                key = f"{placement['area_id']}-R{placement['row']}"
+                key = slot_key(placement, slot or DEFAULT_SLOT)
                 if key not in touched:
                     touched.append(key)
     summary = ' · '.join(f'{phase} {counts[phase]}' for phase in ('재취급', '반출', '복귀', '입고') if counts.get(phase))
@@ -223,14 +228,14 @@ def _attention_view(item, observation, commands):
     """One line per item: a short status, what it is about, why it matters (ADR 0020 facts only)."""
     label = item['label']
     if label == '관측 없음':
-        return dict(item, chip='관측 없음', tone='unknown', what='검토할 관측 원본이 없습니다',
-                    why='계획에는 출처 · 시각 · 설치 기준이 있는 관측이 필요합니다.')
+        return dict(item, chip='현황 없음', tone='unknown', what='야드 현황이 없습니다', action='현황 연결 확인',
+                    why='계획에는 출처 · 시각 · 설치 기준이 있는 야드 현황이 필요합니다.')
     if label == '관측 유효 시간 밖':
-        return dict(item, chip='관측 만료', tone='hold', what=f'관측 #{observation.pk}',
-                    why='유효 시간이 지나 이 관측으로 낸 계획은 실행 근거가 되지 않습니다.')
+        return dict(item, chip='현황 만료', tone='hold', what=f'야드 현황 #{observation.pk}', action='현황 선택',
+                    why='유효 시간이 지나 이 현황으로 낸 계획은 실행 근거가 되지 않습니다.')
     if label == '같은 출처에 새 관측 있음':
-        return dict(item, chip='새 관측 있음', tone='new', what=f'관측 #{observation.pk}보다 최근 관측',
-                    why='이 관측에 고정된 계획은 그대로 둡니다. 새 관측으로 바꿔 검토하세요.')
+        return dict(item, chip='새 현황 있음', tone='new', what=f'#{observation.pk}보다 최근 야드 현황', action='현황 선택',
+                    why='이 현황에 고정된 계획은 그대로 둡니다. 새 현황으로 바꿔 검토하세요.')
     if label == 'HOLD 계획':
         return dict(item, chip='HOLD 계획', tone='hold', what=f'보류된 계획 {item["count"]}건',
                     why='부분 이동은 만들지 않습니다. 보류 이유는 현재 검토 표에서 확인합니다.')

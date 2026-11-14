@@ -8,7 +8,7 @@ from harbor_web import commands, forms, services
 from harbor_web.models import Audit, Command, Observation, Plan
 from harbor_web.yard_view import yard_view, spatial_yard_view
 from harbor_web.yard_occupancy import occupancy_map
-from harbor_web.yard_rows import yard_rows
+from harbor_web.yard_rows import place_context, placement_text, route_text, yard_rows
 from harbor_web.yard_scene import present_stage, scene_for
 
 
@@ -77,6 +77,7 @@ def spatial_stages(order, source, moves):
         return present_stage(dict(view, index=index, phase=phase, label=label, move=move, panel_id=f'yard-{order.pk}-{index}'), source.condition.payload)
 
     stages, display_moves = [stage(0, '관측', '관측한 배치')], []
+    labels, slot = place_context(source.condition.payload)
     for i, move in enumerate(moves):
         source_placement = Placement(**move['source_placement'])
         destination = Placement(**move['destination_placement'])
@@ -87,7 +88,9 @@ def spatial_stages(order, source, moves):
             raise ValueError('Stored move changes the fixed cargo footprint or orientation')
         current = current.with_placements(tuple(destination if p.cargo_id == move['cargo_id'] else p for p in current.placements))
         display = dict(move, number=i + 1, source_level=move['source_placement']['level'],
-                       destination_level=destination.level, spatial=True)
+                       destination_level=destination.level, spatial=True, route=route_text(move, labels, slot),
+                       source_place=placement_text(move['source_placement'], labels, slot),
+                       destination_place=placement_text(move['destination_placement'], labels, slot))
         display_moves.append(display)
         stages.append(stage(i + 1, move['phase_label'], f"{i + 1}단계 후 예상 · {move['phase_label']}", display))
     return stages, display_moves

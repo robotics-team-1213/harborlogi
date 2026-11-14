@@ -1,5 +1,5 @@
 {% if yard_scene %}{% with scene_id=yard_scene_id|default:'yard-scene-data' %}
-<div class="yard-view-switch" data-yard-views hidden aria-label="배치 보기 방식"><button type="button" class="quiet" data-yard-view="3d" aria-pressed="true">3D 모델</button><button type="button" class="quiet" data-yard-view="flat" aria-pressed="false">층별 평면</button></div>
+<div class="yard-view-switch" data-yard-views hidden aria-label="배치 보기 방식"><button type="button" class="quiet" data-yard-view="3d" aria-pressed="true">3D 모델</button><button type="button" class="quiet" data-yard-view="flat" aria-pressed="false">자리 평면</button></div>
 {{ yard_scene|json_script:scene_id }}
 <div class="yard-edit-tools" data-yard-edit-tools hidden aria-label="가상 배치 편집 도구">
   <div class="actions"><button type="button" data-scene-action="edit" aria-pressed="false">가상 배치 편집</button><button type="button" class="quiet" data-scene-load-plan>저장된 계획 결과로 편집</button><button type="button" class="quiet" data-scene-undo disabled>되돌리기</button><button type="button" class="quiet" data-scene-redo disabled>다시 실행</button></div>

@@ -53,7 +53,7 @@ class OccupancyWorkspaceTests(TestCase):
         self.assertEqual(len(marked), 1)
         self.client.force_login(self.operator)
         page = self.client.get(f'/requests/{order.pk}/')
-        for text in ('행별 적재 · 재취급 예정', '계획 기준 · 실적 아님', 'data-cargo="C2"', 'slot role-rehandle', 'slot role-target'):
+        for text in ('자리별 적재 · 재취급 예정', '계획 기준 · 실적 아님', 'data-cargo="C2"', 'slot-level role-rehandle', 'slot-level role-target'):
             self.assertContains(page, text)
 
     def test_scene_carries_the_same_stored_rehandle_cargo_for_the_linked_views(self):

@@ -14,7 +14,7 @@ from harbor_web.yard_occupancy import AREA_LABELS
 def constraints(payload, *, _validate_spatial=True):
     def build():
         required = {'outbound_stand', 'temporary_bays', 'allowed_moves', 'max_observation_age_seconds', 'conveyor', 'arm_reach'}
-        if not isinstance(payload, dict) or not required <= set(payload) <= required | {'yard_layout', 'spatial_areas', 'spatial_moves', 'storage_areas', 'area_presentation', 'extra_outbound_stands', 'stack_rules'}:
+        if not isinstance(payload, dict) or not required <= set(payload) <= required | {'yard_layout', 'spatial_areas', 'spatial_moves', 'storage_areas', 'area_presentation', 'extra_outbound_stands', 'stack_rules', 'slot_cells'}:
             raise ValueError('Condition requires exactly the documented keys.')
         for name in ('temporary_bays', 'allowed_moves', 'arm_reach'):
             if not isinstance(payload[name], list):
@@ -48,7 +48,7 @@ def constraints(payload, *, _validate_spatial=True):
             referenced = {p for edge in payload['allowed_moves'] for p in edge} | {edge[1] for edge in payload['arm_reach']}
             if not referenced <= known:
                 raise ValueError('Moves and reach must reference configured grid or auxiliary locations.')
-        if _validate_spatial and any(k in payload for k in ('spatial_areas', 'spatial_moves', 'storage_areas', 'area_presentation', 'extra_outbound_stands', 'stack_rules')):
+        if _validate_spatial and any(k in payload for k in ('spatial_areas', 'spatial_moves', 'storage_areas', 'area_presentation', 'extra_outbound_stands', 'stack_rules', 'slot_cells')):
             spatial_policy(payload)
             area_presentation(payload)
         return PortConstraints(payload['outbound_stand'], tuple(payload['temporary_bays']),
@@ -189,9 +189,15 @@ def spatial_policy(payload):
         known = {a.area_id for a in areas}
         if any(v not in known for pair in pairs for v in pair):
             raise ValueError('Spatial moves must reference configured areas.')
+        slot_cells = payload.get('slot_cells')
+        if slot_cells is not None and type(slot_cells) is not int:
+            raise ValueError('slot_cells must be an integer when present.')
+        if slot_cells and any(a.columns % slot_cells for a in areas):  # a slot never runs past the end of a row
+            raise ValueError('Every area must hold whole slots: columns must be a multiple of slot_cells.')
         return SpatialPolicy(legacy.outbound_stand, legacy.temporary_bays,
             frozenset(tuple(p) for p in pairs), legacy.arm_reach, legacy.max_observation_age,
-            tuple(payload.get('storage_areas', ['yard'])), tuple(payload.get('extra_outbound_stands', [])))
+            tuple(payload.get('storage_areas', ['yard'])), tuple(payload.get('extra_outbound_stands', [])),
+            slot_cells=slot_cells)
     return _domain(build)
 
 

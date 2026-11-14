@@ -398,19 +398,30 @@ def inventory(request):
             else yard_view(selected.payload['bays'], selected.condition.payload)) if selected else None
     stage = present_stage(dict(view, panel_id='inventory-yard', label='관측한 배치', index=0), condition.payload) if view else None
     scene = scene_for([stage]) if stage else map_scene(condition.payload) if condition else None
+    from harbor_web.yard_rows import place_context, placement_text, slot_key, spot_label
+    labels, slot = place_context(condition.payload) if condition else ({}, None)
     definition_rows = []
     if scene and not selected:
         for area in scene['areas']:
+            if slot:  # fixed container slots: one row per slot, every level at once
+                for row in range(1, area['rows'] + 1):
+                    for first in range(1, area['columns'] + 1, slot.size):
+                        spot = dict(area_id=area['id'], row=row, column=first)
+                        definition_rows.append(dict(area=area['label'], position_id=slot_key(spot, slot),
+                            place=f"{spot_label(spot, labels, slot)} · {area['levels']}층까지"))
+                continue
             for level in range(1, area['levels'] + 1):
                 cells = (condition.payload['yard_layout']['cells'] if area['id'] == 'yard' else
                     [dict(bay_id=f"{area['id']}-R{r}C{c}", row=r, column=c)
                      for r in range(1, area['rows'] + 1) for c in range(1, area['columns'] + 1)])
                 definition_rows.extend(dict(area=area['label'], position_id=f"{cell['bay_id']}-L{level}",
-                    row=cell['row'], column=cell['column'], level=level) for cell in cells)
+                    place=f"{cell['row']}행 {cell['column']}열 {level}층") for cell in cells)
+    placement_rows = [dict(cargo=item['cargo_id'], place=placement_text(item, labels, slot))
+                      for item in (selected.payload.get('placements', []) if selected else [])]
     return page(request, 'inventory.html', section='inventory', observation=selected, observations=choices,
                 condition=condition, condition_filter='condition' in request.GET,
                 conditions=Condition.objects.order_by('-pk'), definition_rows=definition_rows,
-                yard_stage=stage, yard_scene=scene)
+                placement_rows=placement_rows, yard_stage=stage, yard_scene=scene)
 
 
 @require_roles('admin')

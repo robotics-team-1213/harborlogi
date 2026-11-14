@@ -100,7 +100,12 @@ def plan_detail(request, pk):
         from harbor_web.yard_view import spatial_yard_view
         observation_stage = present_stage(dict(spatial_yard_view(services.spatial_snapshot(plan.observation), target=plan.order.cargo.code if plan.order.cargo_id else ''),
             panel_id=f'held-plan-{plan.pk}', label='관측한 배치', index=0), plan.condition.payload)
-    return page(request, 'plan.html', section='inventory', plan=plan, display_moves=plan.result.get('moves', []) if plan.order.kind == 'REARRANGE' else [], gate=gate,
+    from harbor_web.yard_rows import place_context, placement_text
+    labels, slot = place_context(plan.condition.payload)
+    display_moves = [dict(move, source=placement_text(move['source_placement'], labels, slot),
+                          destination=placement_text(move['destination_placement'], labels, slot)) if move.get('source_placement') else move
+                     for move in (plan.result.get('moves', []) if plan.order.kind == 'REARRANGE' else [])]
+    return page(request, 'plan.html', section='inventory', plan=plan, display_moves=display_moves, gate=gate,
                 gate_reason=gate_text(gate['reason']), plan_reason=reason_text(plan.result['reason']), command=None,
                 observation_stage=observation_stage, yard_scene=scene_for([observation_stage]) if observation_stage else None)
 
