@@ -1,1 +1,1 @@
-{% extends 'base.html' %}{% block title %}권한 확인{% endblock %}{% block content %}<h1>이 화면의 권한이 없습니다</h1><p>계정 관리자에게 필요한 역할이나 현장 배정을 확인하세요.</p><a href="/">운영 현황으로 돌아가기</a>{% endblock %}
+{% extends 'base.html' %}{% block title %}권한 확인{% endblock %}{% block content %}<h1>이 화면의 권한이 없습니다</h1><p>계정 관리자에게 필요한 역할이나 현장 배정을 확인하세요.</p>{% if can_read %}<a href="/">운영 현황으로 돌아가기</a>{% elif can_field %}<a href="/field/">현장 확인으로 돌아가기</a>{% else %}<p>이 계정에는 역할이 아직 없습니다. 계정 관리자에게 역할 부여를 요청하세요.</p><a href="{% url 'password_change' %}">비밀번호 변경</a>{% endif %}{% endblock %}

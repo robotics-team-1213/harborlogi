@@ -6,6 +6,11 @@
 .nav-density:focus-visible {outline-color:var(--semantic-focus-on-inverse)}
 .nav-tooltip {position:fixed;z-index:60;max-width:calc(100vw - 24px);padding:var(--primitive-space-3) var(--primitive-space-4);border-radius:var(--primitive-radius-control);background:var(--semantic-surface-navigation);color:var(--semantic-text-inverse);font-size:var(--primitive-font-label);box-shadow:0 4px 14px #112c3f26;pointer-events:auto}
 .nav-tooltip[hidden] {display:none}
+/* Role-scenario groups (docs/design/34 §5): caption + divider; the caption stays for screen readers when the rail is compact */
+.sidebar .nav-group {display:flex;flex-direction:column;gap:var(--primitive-space-1);margin-top:var(--primitive-space-3);padding-top:var(--primitive-space-3);border-top:1px solid var(--semantic-text-secondary)}
+.sidebar .nav-density + .nav-group {margin-top:0;padding-top:0;border-top:0}
+.sidebar .nav-group .utility {margin-top:0}
+.nav-group-label {margin:0;padding:0 var(--primitive-space-3);max-width:none;font-size:var(--primitive-font-caption);font-weight:600;line-height:1.4;color:var(--semantic-text-inverse);opacity:.85}
 @media(min-width:901px) {
   .nav-compact .sidebar {width:var(--component-navigation-rail-width)}
   .nav-compact main:not(.signed-out) {margin-left:var(--component-navigation-rail-width)}
@@ -15,7 +20,7 @@
   .nav-compact .sidebar a {flex-direction:column;justify-content:center;gap:2px;min-height:52px;padding:var(--primitive-space-1) 2px;text-align:center}
   .nav-compact .sidebar .nav-label {font-size:var(--primitive-font-caption);font-weight:600;line-height:1.2;word-break:keep-all}
   .nav-compact .nav-density .nav-label {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .nav-compact .nav-group-label {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
   .nav-compact .sidebar-foot {display:none}
-  .nav-compact .sidebar .utility {margin-top:var(--primitive-space-3)}
 }
-@media(max-width:900px) {.nav-density:not([hidden]) {display:none}}
+@media(max-width:900px) {.nav-density:not([hidden]) {display:none}.sidebar nav {display:flex;flex-direction:column}.sidebar .nav-group {display:grid;grid-template-columns:1fr 1fr}.nav-group-label {grid-column:1 / -1}}
