@@ -87,6 +87,7 @@ Rosy 계정으로 로그인하는 수신기는 팀 main에 병합되어 있다([
 2. 설정 폴더(`HARBOR_CONFIG_DIR`, 컨테이너 안 `/config`)에 JSON 파일을 둔다. 키는 `issuer`, `client_id`, `resource`, `callback` 네 개뿐이고 비밀 값은 넣지 않는다. 하나라도 틀리면 Harbor가 시작하지 않는다.
 3. env 파일에 `HARBOR_ROSY_ACCOUNT_FILE=/config/rosy-account.json`을 적고 `harbor`를 다시 띄운다.
 4. 팀원의 Harbor 권한(`harbor.*`)은 Rosy 계정 화면에서 준다.
+5. 켠 뒤에는 ROSY의 사이트 로그인 점검(`deploy/site/account_login_check.py`)의 앱 목록에 Harbor를 넣어 실제 로그인 왕복을 계속 확인한다. `start`는 `https://<Harbor 주소>/accounts/rosy/`, `session`은 `https://<Harbor 주소>/accounts/rosy/session/`이다. 점검 계정에는 `harbor.view`가 있어야 한다.
 
 설치 상태(2026-11-14): 아직 켜지 않았다. 준비된 것은 세 가지다. Harbor 화면 인증서를 공인 인증서로 바꿨고(매일 갱신 확인), 설정 폴더에 `rosy-account.json`을 두었고, Account 설정의 client 목록에 `harbor`를 넣었다(Account가 다시 뜰 때 적용). 남은 것은 Harbor 권한(`harbor.*`)을 아는 Account 판으로 R을 갱신하는 일, 팀원에게 권한을 주는 일(4번), 3번의 env 한 줄이다. 현장 R의 Account는 아직 `harbor.*` 권한을 모르는 판이라 그 전에 3번을 하면 로그인이 거절된다. Harbor 컨테이너에서 Account issuer의 `/api/fleet/auth/keys`에는 닿는다.
 

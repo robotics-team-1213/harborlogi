@@ -16,6 +16,7 @@ urlpatterns = [
     path('accounts/login/', rosy_account.LoginView.as_view(), name='login'),
     path('accounts/rosy/', rosy_account.start, name='rosy_account_start'),
     path('accounts/rosy/callback/', rosy_account.callback, name='rosy_account_callback'),
+    path('accounts/rosy/session/', rosy_account.session, name='rosy_account_session'),
     path('accounts/logout/', views.LogoutView.as_view(), name='logout'),
     path('accounts/password_change/', views.PasswordChangeView.as_view(), name='password_change'),
     path('accounts/password_change/done/', views.PasswordChangeDoneView.as_view(), name='password_change_done'),

@@ -23,7 +23,7 @@ from django.contrib.auth import views as auth_views
 from django.contrib.auth.models import Group, User
 from django.core.exceptions import ImproperlyConfigured
 from django.dispatch import receiver
-from django.http import Http404
+from django.http import Http404, JsonResponse
 from django.shortcuts import redirect
 from django.utils.http import url_has_allowed_host_and_scheme
 
@@ -203,6 +203,16 @@ def callback(request):
     login(request, user, backend='django.contrib.auth.backends.ModelBackend')
     request.session[_SESSION] = tokens
     return redirect(flow['next'])
+
+
+def session(request):
+    """JSON proof of a Rosy sign-in, read by ROSY's site login check (deploy/site/account_login_check.py)."""
+    if not settings.ROSY_ACCOUNT:
+        raise Http404
+    tokens = request.session.get(_SESSION) if request.user.is_authenticated else None
+    response = JsonResponse({'authenticated': True, 'account_id': tokens['sub']} if tokens else {'authenticated': False})
+    response['Cache-Control'] = 'no-store'
+    return response
 
 
 def _revoke(token):
