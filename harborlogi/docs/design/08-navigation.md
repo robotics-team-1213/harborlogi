@@ -26,7 +26,7 @@
 
 ### 현재 제품 웹의 역할 시나리오 메뉴
 
-위 표는 초기 preview 정보 구조의 기록이며 지우지 않는다. 제품 웹의 실제 메뉴는 담당자의 일 순서로 묶은 아래 구성이다. 정본은 [34 역할별 시나리오 접근과 메뉴](34-role-scenario-access-and-menus.md)와 [13 계정·역할](13-accounts-and-roles.md)이며, 코드의 기준은 `harbor_web/access.py`다.
+위 표는 초기 preview 정보 구조의 기록이며 지우지 않는다. 제품 웹의 실제 메뉴는 담당자의 일 순서로 묶은 아래 구성이다. 정본은 [34 역할별 시나리오 접근과 메뉴](34-role-scenario-access-and-menus.md)와 [13 제품 웹 화면·동작 계약](13-product-web-surface.md)이며, 코드의 기준은 `harbor_web/access.py`다.
 
 | 묶음 | 항목(경로) | 보이는 역할 |
 |---|---|---|

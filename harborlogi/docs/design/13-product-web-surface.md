@@ -28,7 +28,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 | `/requests/`, `/requests/new/`, `/requests/<id>/` | viewer/operator/admin | operator 입고/반출 요청·revision 변경·관측 선택 후 계획. 요청 시간선은 읽기 |
 | `/inventory/`, `/inventory/import/` | viewer/operator/admin | admin 관측 원본 등록(`/inventory/import/`은 admin만). DECLARED/SYNTHETIC만 가능. 인증 관측으로 승격 금지 |
 | `/plans/<id>/` | viewer/operator/admin | operator 검토 후 현재 단계 제안. 과거 계획/현재 freshness·불명 gate 구분 |
-| `/work/`, `/work/<id>/` | `/work/`는 viewer/operator/admin. 상세는 field 포함(field는 본인 배정으로 좁힘) | operator 원래 key 대조·취소. 완료/안전 강제 버튼 없음 |
+| `/work/`, `/work/<id>/` | `/work/`는 viewer/operator/admin. 상세는 viewer/operator/admin, field-only는 그 명령이 본인의 사람 확인을 기다리는 동안만 GET(아니면 403). 사람 확인 양식 POST는 field/operator | operator 원래 key 대조·취소. 완료/안전 강제 버튼 없음 |
 | `/rearrangement/` | viewer/operator/admin | 자동 재배치 허용 범위와 실행 기록 읽기 |
 | `/field/`, `/field/<id>/` | field 자신의 배정만; operator/admin은 관리 맥락 | operator 배정(`/field/new/`)/출발 전제 기록, field 본인 현장 확인 |
 | `/records/`, `/records/compare/` | viewer/operator/admin | operator 측정 자료 등록(`/records/measurements/new/`), 같은 조건 비교 |
