@@ -5,6 +5,41 @@ from pathlib import Path
 import secrets
 import subprocess
 import sys
+import tempfile
+
+PERSONA_ACCOUNTS = {'operator': 'harbor-operator', 'field': 'harbor-field', 'admin': 'harbor-admin', 'viewer': 'harbor-viewer'}
+
+
+def ensure_persona_accounts(saved):
+    """Create or refresh one preview account per persona; call only after django.setup()."""
+    from django.contrib.auth import get_user_model
+    from django.contrib.auth.models import Group
+    saved = saved or {}
+    accounts = {}
+    for role, username in PERSONA_ACCOUNTS.items():
+        password = (saved.get(role) or {}).get('password') or secrets.token_urlsafe(24)
+        user, _ = get_user_model().objects.get_or_create(username=username)
+        user.is_staff = role == 'admin'
+        user.is_active = True
+        user.set_password(password)
+        user.save()
+        user.groups.set(Group.objects.filter(name=role))
+        accounts[role] = dict(username=username, password=password)
+    return accounts
+
+
+def _write_access(path, values):
+    """Replace the private access file atomically, keeping mode 0600."""
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix='.access-')
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+            json.dump(values, stream)
+        os.replace(temporary, path)
+    except BaseException:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+        raise
 
 
 def main():
@@ -38,6 +73,10 @@ def main():
     with WriterLease(folder / 'product.sqlite3'):
         call_command('migrate', interactive=False, verbosity=0)
         call_command('bootstrap_roles', verbosity=0)
+        personas = ensure_persona_accounts(values.get('personas'))
+        if values.get('personas') != personas:
+            values['personas'] = personas
+            _write_access(access, values)
         user, created = get_user_model().objects.get_or_create(username=values['username'], defaults={'is_staff': True})
         if created:
             user.set_password(values['password'])
@@ -79,8 +118,10 @@ def main():
         if inbound is None:
             inbound = services.create_order(user, cargo=Cargo.objects.get(code='C3'), kind='INBOUND', priority_group=3, sequence=1, tie_policy='FIXED', note='현장 확인 화면 검토용 합성 요청')
         if not FieldEpisode.objects.filter(order=inbound, state='OPEN').exists():
-            services.assign_episode(user, order_id=inbound.pk, vehicle_id='합성 차량 P1', assigned_to=user)
+            services.assign_episode(user, order_id=inbound.pk, vehicle_id='합성 차량 P1',
+                                    assigned_to=get_user_model().objects.get(username=PERSONA_ACCOUNTS['field']))
     print('Product preview: http://127.0.0.1:8060/ · synthetic data; Fleet disconnected.', flush=True)
+    print('Persona accounts: ' + ', '.join(PERSONA_ACCOUNTS.values()) + ' (passwords only in the access file).', flush=True)
     print('Private access file: runs/product-preview/access.json (do not publish).', flush=True)
     return subprocess.call([sys.executable, '-m', 'harbor_web', '--port', '8060'], cwd=root, env=os.environ)
 
