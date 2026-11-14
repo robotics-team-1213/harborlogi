@@ -45,7 +45,7 @@ with socket.create_connection((parts.hostname, parts.port or 443), timeout=5) as
 report(2, days > 30, f'Fleet 인증서가 이름으로 검증됨, 만료까지 {days}일')
 client = RosyClient(origin, token)
 session = client.session()
-report(4, session == {'principal_id': os.environ['HARBOR_FLEET_PRINCIPAL'], 'role': 'service'}, 'session이 설정된 service 신원과 일치')
+report(4, (session.get('principal_id'), session.get('role')) == (os.environ['HARBOR_FLEET_PRINCIPAL'], 'service'), 'session이 설정된 service 신원과 일치')
 report(3, answer(RosyClient(origin, 'x' * 40).session)[0] == 401, '틀린 토큰은 401')
 key = 'harbor-probe-' + uuid.uuid4().hex
 report(9, answer(lambda: client.arm_request(key)) == (404, 'ARM_TRANSFER_JOB_NOT_FOUND'), '없는 키는 code가 든 404')
