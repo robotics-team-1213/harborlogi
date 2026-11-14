@@ -49,7 +49,7 @@ SCENARIOS = (
     ), ''),
     Scenario('S7', 'admin', '설치 기준·맵', (
         Step('settings', '팀 역할과 구역 맵 상태를 확인합니다.'),
-        Step('map_new', '구역 맵을 편집하거나 설치 기준을 등록합니다.'),
+        Step('map_new', '구역 맵을 편집합니다.'),
         Step('condition_new', '검증한 설치 기준을 등록합니다.'),
     ), '업무 담당(새 기준으로 계획)'),
     Scenario('S8', 'admin', '관측 원본 등록', (
@@ -72,9 +72,11 @@ SCENARIOS = (
 )
 
 
-def _owner(key):
+def _owner(key, persona):
     roles = access.page(key).roles
-    return next(name for role, name in access.PERSONAS.items() if role in roles)
+    if persona in roles:
+        return access.PERSONAS[persona]
+    return next((name for role, name in access.PERSONAS.items() if role in roles), '')
 
 
 def _row(scenario, user_roles):
@@ -83,7 +85,7 @@ def _row(scenario, user_roles):
         target = access.page(step.page)
         openable = access.can_open(user_roles, step.page)
         steps.append({'label': target.label, 'href': target.path if openable else None,
-                      'owner': '' if openable else _owner(step.page), 'text': step.text})
+                      'owner': '' if openable else _owner(step.page, scenario.persona), 'text': step.text})
     return {'key': scenario.key, 'title': scenario.title, 'persona': access.PERSONAS[scenario.persona],
             'handoff': scenario.handoff, 'steps': steps}
 
