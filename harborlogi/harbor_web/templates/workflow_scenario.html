@@ -1,0 +1,3 @@
+<section class="task-execution" id="{{ scenario.key }}"><h2>{{ scenario.key }} {{ scenario.title }} · {{ scenario.persona }}</h2>
+<ol class="journey-list">{% for step in scenario.steps %}<li><span class="journey-number">{{ forloop.counter }}</span><div><h3>{% if step.href %}<a href="{{ step.href }}">{{ step.label }}</a>{% else %}{{ step.label }} <small>({{ step.owner }} 담당 화면)</small>{% endif %}</h3><p>{{ step.text }}</p></div></li>{% endfor %}</ol>
+{% if scenario.handoff %}<p class="muted">다음 담당 · {{ scenario.handoff }}</p>{% endif %}</section>

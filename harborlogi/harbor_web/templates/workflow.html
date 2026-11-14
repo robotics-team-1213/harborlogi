@@ -1,14 +1,8 @@
 {% extends 'base.html' %}{% block title %}업무 안내{% endblock %}{% block content %}
-<div class="page-head"><div><p class="eyebrow">HarborLogi 운영 흐름</p><h1>내가 할 일과 다음 담당자</h1><p>화물의 업무 판단부터 실행 원본 대조까지, 각 화면에서 남길 결과를 확인하세요.</p></div></div>
-{% if can_read %}
-<ol class="journey-list">
-<li><span class="journey-number">01</span><div><h2><a href="/cargo/">화물·요청</a> · 무엇을 언제 처리할까</h2><p>화물 ID와 점유 크기(1×1·2×1·3×1)를 등록하고 입고·반출 지시와 우선순위를 만듭니다. 크기 등록은 재고 배치와 구별됩니다.</p><small>담당 · 업무 담당자 → 결과 · 화물·요청 revision</small></div></li>
-<li><span class="journey-number">02</span><div><h2><a href="/inventory/">재고·관측</a> · 어디에 있는가</h2><p>출처·시각·설치 기준을 확인하고, 검토할 원본을 선택해 요청으로 이동합니다. 과거 관측을 선택하면 그 선택을 다음 화면에 유지합니다.</p><small>담당 · 관리자 등록 / 업무 담당자 검토 → 결과 · 선택한 관측 원본</small></div></li>
-<li><span class="journey-number">03</span><div><h2><a href="/outbound/">반출 관제</a> · 어떤 순서로 옮길까</h2><p>대상과 재취급 화물을 확인하고 재취급 → 반출 → 복귀 계획을 검토합니다. 미리보기는 예상 위치이며, 실제 위치 기록을 바꾸지 않습니다.</p><small>담당 · 업무 담당자 → 결과 · 관측과 지시에 고정된 계획</small></div></li>
-<li><span class="journey-number">04</span><div><h2><a href="/work/">실행·대조</a> · 누구에게 인계됐는가</h2><p>Harbor에서 현재 단계의 제안을 제출합니다. ROSY Fleet의 다른 운영자가 원본과 자원을 검토해 별도로 승인합니다. 결과가 불명확하면 저장된 요청으로 원본을 대조합니다.</p><small>담당 · Harbor 업무 담당자 → Fleet 독립 승인자 → ROSY 실행 소유자</small></div></li>
-<li><span class="journey-number">05</span><div><h2><a href="/records/">기록·검증</a> · 무엇으로 완료를 판단할까</h2><p>요청별 변경, 실제 배치, 재취급 복귀와 관련 팔 퇴피 근거를 확인합니다. Action 성공과 물리 receipt만으로 전체 업무를 완료하지 않습니다.</p><small>담당 · 업무 담당자 → 결과 · 실행 시도와 연결된 완료 근거 대조</small></div></li>
-</ol>
-<section class="notice"><strong>현재 운영 연결의 범위</strong><p>다칸 계획은 검토할 수 있습니다. 실제 운영 인계에는 검증된 공간·장치 대응과 인증된 관측·업무 근거 연결이 필요합니다.</p>{% if can_admin %}<a href="/settings/integration/">설정된 연동과 남은 조건 확인</a>{% endif %}</section>
-{% endif %}
-{% if can_field or can_operate or can_admin %}<section class="task-execution"><h2><a href="/field/">현장 확인</a> · 입고 차량의 같은 회차를 확인</h2><p>배정받은 차량 ID·화물·회차가 맞는지 확인한 뒤 공급암 S가 적재면을 비웠는지 직접 기록합니다. 확인은 5분 안에서만 출발 전제에 사용할 수 있습니다.</p><p>확인이 오래됐거나 대상이 다르면 업무 담당자가 새 회차를 배정하고 현장에서 다시 확인합니다. 출발 전제 기록 뒤 실제 차량 이송은 Fleet 운영자에게 인계합니다.</p><a class="button" href="/field/">배정된 확인 열기</a></section>{% endif %}
+<div class="page-head"><div><p class="eyebrow">HarborLogi 운영 흐름</p><h1>내가 할 일과 다음 담당자</h1><p>담당별 시나리오로 각 화면에서 남길 결과와 다음 담당을 확인하세요. 열 수 없는 화면은 링크 없이 담당만 표시합니다.</p></div></div>
+{% if can_read %}<section class="notice"><strong>현재 운영 연결의 범위</strong><p>다칸 계획은 검토할 수 있습니다. 실제 운영 인계에는 검증된 공간·장치 대응과 인증된 관측·업무 근거 연결이 필요합니다.</p>{% if can_admin %}<a href="/settings/integration/">설정된 연동과 남은 조건 확인</a>{% endif %}</section>{% endif %}
+{% if scenarios.mine %}<p class="eyebrow">내 일</p>{% endif %}
+{% for scenario in scenarios.mine %}{% include 'workflow_scenario.html' %}{% endfor %}
+{% if scenarios.others %}<details><summary>다른 담당의 일</summary>{% for scenario in scenarios.others %}{% include 'workflow_scenario.html' %}{% endfor %}</details>{% endif %}
+{% if can_field or can_operate or can_admin %}<section class="task-execution"><a class="button" href="/field/">배정된 확인 열기</a></section>{% endif %}
 {% endblock %}

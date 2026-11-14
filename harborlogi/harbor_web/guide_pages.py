@@ -1,5 +1,6 @@
 """Role-scoped operating guidance; reading guidance never probes or controls Fleet."""
-from harbor_web.auth import require_roles
+from harbor_web.auth import require_roles, roles
+from harbor_web.scenarios import scenario_rows
 from harbor_web.views import page
 from django import forms
 from django.contrib import messages
@@ -85,7 +86,7 @@ def connection_guidance(config, check, *, token_present):
 
 @require_roles('viewer', 'operator', 'field', 'admin')
 def workflow(request):
-    return page(request, 'workflow.html', section='workflow')
+    return page(request, 'workflow.html', section='workflow', scenarios=scenario_rows(roles(request.user)))
 
 
 @require_roles('admin')
