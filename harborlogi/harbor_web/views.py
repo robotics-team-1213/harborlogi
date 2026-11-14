@@ -1,7 +1,6 @@
 from django.contrib import messages
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
-from django.db import transaction
 from django.db.models import Q
 from django.http import Http404, HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
@@ -92,6 +91,11 @@ def overview(request):
                 row.update(action='입고 추천·변경 근거 확인', reason=reason_text(plan.result['reason']),
                     status=plan.result['status'], status_label='입고 배치 추천' if plan.result['status'] == 'READY' else '입고 배치 보류',
                     href=f'/plans/{plan.pk}/')
+                from harbor_web.inbound_decision import placement_decision
+                if plan.result['status'] == 'READY' and plan.order_version == order.version:
+                    decided = placement_decision(plan)
+                    row.update(status_label='입고 위치 결정됨' if decided else '입고 결정 대기',
+                               action='결정 내용 보기' if decided else '추천 위치 결정')
         changes = plan_changes(order, plan, current_queue_digest=current_queue_digest)
         if changes:
             row.update(status='HOLD', status_label='계획 재검토', reason=changes[0]['message'], action='최신 기준으로 검토', href=f'/requests/{order.pk}/')
@@ -300,14 +304,8 @@ def order_new(request):
     form = forms.OrderForm(request.POST or None, initial=initial)
     if request.method == 'POST' and form.is_valid():
         data = dict(form.cleaned_data)
-        make_first = data.pop('make_first')
-        if data.get('sequence') is None:  # last in its tier unless a script sends a sequence
-            data['priority_group'], data['sequence'] = services.back_of_tier(data['priority_group'], data['kind'])
-        try:
-            with transaction.atomic():
-                obj = services.create_order(request.user, **data)
-                if make_first and obj.kind == 'OUTBOUND':
-                    services.move_outbound_to_front(request.user, obj)
+        try:  # last in its tier unless a script sends a sequence; one locked transaction with the move to the front
+            obj = services.register_order(request.user, make_first=data.pop('make_first'), **data)
         except ValidationError as error:
             form_error(form, error)
         except services.Conflict:

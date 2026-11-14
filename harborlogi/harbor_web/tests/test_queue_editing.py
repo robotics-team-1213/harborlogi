@@ -117,6 +117,31 @@ class QueueEditingTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.lanes(), [(1, 1, 'FIXED', 'X'), (3, 1, 'FIXED', 'C'), (3, 2, 'FIXED', 'A'), (3, 3, 'FIXED', 'B')])
 
+    def test_registration_takes_the_queue_lock_before_its_transaction(self):
+        # Same order as every mutating service: queue_lock first, then the SQLite write lock (review of #44). The
+        # request's first lock must come while no transaction of its own is open yet.
+        from unittest.mock import patch
+        from django.db import connection
+        from harbor_web import coordination
+        depths, lock = [], coordination.queue_lock
+
+        class Spy:
+            def __enter__(self):
+                depths.append(len(connection.atomic_blocks))
+                return lock.__enter__()
+
+            def __exit__(self, *exc):
+                return lock.__exit__(*exc)
+        self.order('A', 3, 1)
+        cargo = self.cargo('C')
+        self.client.force_login(self.operator)
+        outside = len(connection.atomic_blocks)
+        with patch.object(coordination, 'queue_lock', Spy()):
+            response = self.client.post('/requests/new/', dict(cargo=cargo.pk, kind='OUTBOUND', priority_group=3,
+                                                               tie_policy='FIXED', make_first='on'))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(depths[:1], [outside])
+
     def test_unchecked_fixed_order_box_saves_any(self):
         self.client.force_login(self.operator)
         self.client.post('/requests/new/', dict(cargo=self.cargo('A').pk, kind='OUTBOUND', priority_group=2))

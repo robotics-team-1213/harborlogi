@@ -163,6 +163,20 @@ def _lane_entries():
             for lane in outbound_lanes()]
 
 
+@serialized
+def register_order(actor, *, make_first=False, **data):
+    """Create a request (at the back of its tier unless a sequence is given) and, for an outbound asked to go first,
+    move it to the front of its tier in the same transaction. queue_lock first, then the write lock, like every
+    other mutating service (review of #44)."""
+    with transaction.atomic():
+        if data.get('sequence') is None:
+            data['priority_group'], data['sequence'] = back_of_tier(data['priority_group'], data['kind'])
+        order = create_order(actor, **data)
+        if make_first and order.kind == 'OUTBOUND':
+            move_outbound_to_front(actor, order)
+    return order
+
+
 def move_outbound_to_front(actor, order):
     """Put one open outbound order first in its own tier; everything else keeps its place."""
     lanes = _lane_entries()

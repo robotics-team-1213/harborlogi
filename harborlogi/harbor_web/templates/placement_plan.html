@@ -5,6 +5,13 @@
 <p class="notice"><strong>{{ plan_reason }}</strong> · {% if plan.observation.provenance == 'SYNTHETIC' %}합성 시험 자료{% else %}수동 등록 · 출처 인증 미확인{% endif %}. 추천은 실제 배치·로봇 실행을 뜻하지 않습니다.</p>
 {% if plan_changes %}<div class="notice"><strong>계산 기준이 달라졌습니다</strong>{% for change in plan_changes %}<p>{{ change.message }}</p>{% endfor %}<a href="/requests/{{ order.pk }}/">현재 요청과 최신 계획 확인</a></div>{% endif %}
 {% include 'auto_planning_status.html' %}
+{% if plan.result.status == 'READY' and plan.result.recommendation %}<section class="panel decision-panel" aria-labelledby="decision-title"><div class="panel-h"><h3 id="decision-title">입고 위치 결정</h3><span class="scope">알고리즘이 계산하고, 사람이 결정합니다</span></div><div class="panel-b">
+  {% if decision %}<p><span class="chip tone-info">결정됨</span> {{ decision.actor.username }} · {{ decision.created_at|date:'m-d H:i:s' }} · {{ plan.result.recommendation.row }}행 {{ plan.result.recommendation.level }}층</p><p class="helptext">결정은 기록만 남깁니다. 실제 입고 이동은 입고 실행 연결(설치 대응)과 새 관측으로 확인합니다.</p>
+  {% elif newer_plan %}<p>이 요청에 더 새 계획이 있습니다. <a href="/plans/{{ newer_plan.pk }}/">최신 계획 #{{ newer_plan.pk }}에서 결정</a></p>
+  {% elif plan_changes %}<p>계산 기준이 달라져 이 추천으로는 결정할 수 없습니다. <a href="/requests/{{ order.pk }}/">최신 계획 확인</a></p>
+  {% elif can_operate %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="decide"><input type="hidden" name="expected_version" value="{{ order.version }}"><button type="submit">이 위치로 결정</button></form><p class="helptext">{{ order.cargo.code }}을(를) {{ plan.result.recommendation.row }}행 {{ plan.result.recommendation.level }}층에 두는 추천입니다. 결정해야 다음 단계로 넘어갑니다.</p>
+  {% else %}<p class="muted">결정에는 업무 담당 역할이 필요합니다.</p>{% endif %}
+</div></section>{% endif %}
 {% if plan.result.recommendation %}<section aria-labelledby="recommendation-title"><h2 id="recommendation-title">추천 위치와 선택 이유</h2>
 <dl class="facts"><div><dt>추천 구역·위치</dt><dd>{{ plan.result.recommendation.area_id }} · {{ plan.result.recommendation.row }}행 {{ plan.result.recommendation.column }}열 {{ plan.result.recommendation.level }}층</dd></div><div><dt>방향·크기 원본</dt><dd>{{ plan.result.recommendation.orientation }}도 · #{{ plan.result.footprint_revision }}</dd></div><div><dt>새로 막는 선출고 화물</dt><dd>{{ plan.result.score.0 }}개</dd></div><div><dt>순서 미확인 겹침·높이</dt><dd>{{ plan.result.score.1 }}개 · {{ plan.result.score.2 }}층</dd></div></dl>
 <p>유효 후보 {{ plan.result.candidate_count }}개 중 선출고 방해, 순서 미확인 관계, 높이, 고정 주소 순으로 비교했습니다. 전체 일정 최적해나 실측 시간 절감을 보장하지 않습니다.</p>
