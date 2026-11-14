@@ -17,7 +17,9 @@ runs/web-venv/Scripts/python.exe -m pip install -e '.[web]'
 runs/web-venv/Scripts/python.exe tools/product_preview.py
 ```
 
-같은 PC에서 `http://127.0.0.1:8060/`을 연다. 최초 실행이 만든 `runs/product-preview/access.json`의 username/password로 로그인한다. 이 파일과 DB는 비공개 로컬 자료이며 커밋/공유하지 않는다. preview 계정은 **화면 검토를 위해 네 역할을 명시적으로 함께 부여한 개발 계정**이다. 운영 계정으로 재사용하지 않는다. Windows에서는 파일 ACL도 로컬 사용자에게 제한한다.
+같은 PC에서 `http://127.0.0.1:8060/`을 연다. 최초 실행이 만든 `runs/product-preview/access.json`의 username/password로 로그인한다. 이 파일과 DB는 비공개 로컬 자료이며 커밋/공유하지 않는다. preview 계정은 **화면 검토를 위해 네 역할을 명시적으로 함께 부여한 개발 계정**이다. 운영 계정으로 재사용하지 않는다.
+
+역할별 화면은 역할 하나씩만 가진 페르소나 계정 네 개로 확인한다: `harbor-operator`(업무 담당), `harbor-field`(현장 확인), `harbor-admin`(설치·운영 관리), `harbor-viewer`(조회). 이 비밀번호는 같은 비공개 `access.json`의 `personas` 항목에만 있다. 출력·커밋·공유하지 않는다. `harbor-admin`만 staff다. 합성 입고 현장 회차는 이미 사용 중이 아니면 재배정 서비스로 `harbor-field`에 옮겨진다. 이 계정도 운영 계정이 아니다. 접근 규칙은 [역할 시나리오별 화면 권한과 메뉴](design/34-role-scenario-access-and-menus.md)를 따른다. Windows에서는 파일 ACL도 로컬 사용자에게 제한한다.
 
 이 도구는 별도 개발 DB에 합성 화물·관측·계획·현장 배정을 만들고 실행한다. 상속된 Fleet token/원장 설정은 제거하며 실제 ROSY로 제출하지 않는다. 시연 관측 신선도 30분은 합성 화면 검토 설정으로 운영 기준이 아니다. 다시 실행하면 새 합성 관측 revision과 계획을 추가하고 이력은 보존한다. 기존 `python -m harbor.web --demo --port 8050`은 표준 라이브러리 조회 preview로 남는다.
 
@@ -31,7 +33,7 @@ runs/web-venv/Scripts/python.exe -m harbor_web.manage bootstrap_roles
 runs/web-venv/Scripts/python.exe -m harbor_web.manage createsuperuser
 ```
 
-관리자는 자기 계정에 명시적 admin membership을 초기 발급한다. 대화형 관리 shell에서 `User.objects.get(username=...).groups.add(Group.objects.get(name='admin'))`를 사용하고 비밀번호는 명령줄 인자로 전달하지 않는다. 이후 `/admin/auth/user/`에서 계정을 발급하고 필요한 역할만 부여한다. admin은 active staff와 Django 계정 관리 권한도 필요하며 bootstrap은 admin group에 해당 기본 권한을 부여한다. operator·field는 별도로 부여해야 한다.
+관리자는 자기 계정에 명시적 admin membership을 초기 발급한다. 대화형 관리 shell에서 `User.objects.get(username=...).groups.add(Group.objects.get(name='admin'))`를 사용하고 비밀번호는 명령줄 인자로 전달하지 않는다. 이후 `/admin/auth/user/`에서 계정을 발급하고 필요한 역할만 부여한다. admin은 active staff와 Django 계정 관리 권한도 필요하며 bootstrap은 admin group에 해당 기본 권한을 부여한다. operator·field는 별도로 부여해야 한다. `/admin/` 계정 관리는 active staff가 필요하며, staff가 아닌 계정에는 설정 화면이 계정 관리 링크를 숨기고 계정 관리자에게 요청하라고 안내한다.
 
 비밀번호 변경은 본인 계정 링크, 초기화는 계정 관리자의 Django 비밀번호 변경 절차를 사용한다. 비활성·역할 변경은 다음 요청에 적용된다. 로그인 실패는 영속 제한을 적용한다. 초기 관리자 비밀번호·고정 운영 seed 계정은 소스에 없다.
 

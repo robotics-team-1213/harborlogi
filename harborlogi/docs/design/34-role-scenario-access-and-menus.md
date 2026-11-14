@@ -1,6 +1,6 @@
 # 역할 시나리오별 화면 권한과 메뉴
 
-상태: 2026-11-14 설계·구현 계획. 사람 책임 역할은 [역할 설계](01-roles-and-workflows.md), 경로·동작 권한의 정본은 [제품 웹 계약](13-product-web-surface.md)이다. 이 문서는 두 문서를 페르소나 시나리오로 묶어 **화면 접근·메뉴 노출·안내의 단일 원본**을 정한다. 실제 인원·겸임 정책은 여전히 미확정이며 담당자를 합성하지 않는다.
+상태: 2026-11-14 설계. 구현 완료: feat/role-scenario-menus 브랜치(main 미병합). 사람 책임 역할은 [역할 설계](01-roles-and-workflows.md), 경로·동작 권한의 정본은 [제품 웹 계약](13-product-web-surface.md)이다. 이 문서는 두 문서를 페르소나 시나리오로 묶어 **화면 접근·메뉴 노출·안내의 단일 원본**을 정한다. 실제 인원·겸임 정책은 여전히 미확정이며 담당자를 합성하지 않는다.
 
 ## 1. 왜 정리하나
 
@@ -92,3 +92,16 @@
 - 접근 규칙은 바꾸지 않는다. 실측 행렬이 13과 맞고, 바꿀 근거가 되는 사용자 결정이 없다.
 - view의 `require_roles` 데코레이터는 그대로 두고, 새 원본 `harbor_web/access.py`와 HTTP 행렬 시험으로 둘이 어긋나지 않게 묶는다. 열린 팀 브랜치(KAN-115·118)가 `views.py`·`urls_product.py`를 고치고 있어 데코레이터를 일괄 교체하면 충돌이 커진다.
 - 시나리오 실행 순서를 강제하는 마법사나 페르소나 전환 기능은 만들지 않는다. 화면 폭으로 역할을 추정하지 않는다(08 §5).
+
+## 9. 구현 위치
+
+브랜치 `feat/role-scenario-menus`(main 미병합). 코드가 정본이며 아래와 다른 점을 적는다.
+
+- 접근·메뉴 원본: `harbor_web/access.py`(PAGES, MENU_PAGES, `nav_groups`, `persona_names`).
+- 메뉴 표시: `harbor_web/presentation.py`, `harbor_web/templates/base.html`.
+- 403·설정: `harbor_web/templates/403.html`(역할별 복귀 링크, 역할 없음 안내), `harbor_web/templates/settings.html`(계정 링크는 staff만).
+- 업무 안내: `harbor_web/scenarios.py`, `harbor_web/templates/workflow.html`.
+- 로컬 검토 계정: `tools/product_preview.py`(페르소나 4개, admin만 staff).
+- 시험: `harbor_web/tests/test_access_policy.py`(등록 경로 × 역할 + 역할 없는 계정 HTTP 행렬) 외 관련 web 시험.
+
+설계와 다른 점: S7은 두 단계(맵 편집, 설치 기준 등록)로 나뉘어 구현했다. 900px 이하 메뉴는 그룹마다 두 열로 보인다. 현장·태블릿 수용은 하지 않았다.
