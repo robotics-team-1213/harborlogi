@@ -48,7 +48,22 @@ def validate_database_path(database):
 DB_PATH = os.environ.get('HARBOR_WEB_DATABASE')
 if MODE == 'live' and (not DB_PATH or not Path(DB_PATH).is_absolute() or 'legacy' in DB_PATH.lower() or Path(DB_PATH).name == 'web-development.sqlite3'):
     raise ImproperlyConfigured('Live mode requires an explicit absolute non-legacy HARBOR_WEB_DATABASE.')
-DATABASES = {'default': {'ENGINE': 'django.db.backends.sqlite3', 'NAME': DB_PATH or (':memory:' if MODE == 'test' else BASE_DIR / 'runs/web-development.sqlite3'), 'OPTIONS': {'timeout': 20}}}
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': DB_PATH or (':memory:' if MODE == 'test' else BASE_DIR / 'runs/web-development.sqlite3'),
+        'OPTIONS': {
+            'timeout': 20,
+            'transaction_mode': 'IMMEDIATE',
+            'init_command': (
+                'PRAGMA journal_mode=WAL;'
+                'PRAGMA synchronous=NORMAL;'
+                'PRAGMA foreign_keys=ON;'
+                'PRAGMA busy_timeout=20000;'
+            ),
+        },
+    }
+}
 validate_database_path(DATABASES['default']['NAME'])
 INSTALLED_APPS = ['django.contrib.admin', 'django.contrib.auth', 'django.contrib.contenttypes', 'django.contrib.sessions', 'django.contrib.messages', 'django.contrib.staticfiles', 'axes', 'harbor_web.apps.HarborWebConfig']
 MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'whitenoise.middleware.WhiteNoiseMiddleware', 'django.contrib.sessions.middleware.SessionMiddleware', 'django.middleware.common.CommonMiddleware', 'django.middleware.csrf.CsrfViewMiddleware', 'django.contrib.auth.middleware.AuthenticationMiddleware', 'harbor_web.rosy_account.RosyAccountMiddleware', 'django.contrib.messages.middleware.MessageMiddleware', 'django.middleware.clickjacking.XFrameOptionsMiddleware', 'harbor_web.middleware.SecurityHeadersMiddleware', 'axes.middleware.AxesMiddleware']

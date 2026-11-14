@@ -133,6 +133,8 @@ class BusinessLedger:
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._reads = {}
         with closing(self._connect()) as c, c:
+            if self.path != ':memory:':
+                c.execute('PRAGMA journal_mode=WAL')
             c.executescript("""
                 CREATE TABLE IF NOT EXISTS business (
                     request_key TEXT PRIMARY KEY, digest TEXT NOT NULL, payload TEXT NOT NULL,
@@ -174,6 +176,9 @@ class BusinessLedger:
     def _connect(self):
         c = sqlite3.connect(self.path, timeout=10)
         c.row_factory = sqlite3.Row
+        c.execute('PRAGMA foreign_keys=ON')
+        c.execute('PRAGMA synchronous=NORMAL')
+        c.execute('PRAGMA busy_timeout=10000')
         return c
 
     @staticmethod
