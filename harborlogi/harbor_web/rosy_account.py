@@ -210,9 +210,7 @@ def session(request):
     if not settings.ROSY_ACCOUNT:
         raise Http404
     tokens = request.session.get(_SESSION) if request.user.is_authenticated else None
-    response = JsonResponse({'authenticated': True, 'account_id': tokens['sub']} if tokens else {'authenticated': False})
-    response['Cache-Control'] = 'no-store'
-    return response
+    return JsonResponse({'authenticated': True, 'account_id': tokens['sub']} if tokens else {'authenticated': False})
 
 
 def _revoke(token):

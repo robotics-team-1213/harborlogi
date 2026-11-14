@@ -69,7 +69,7 @@ class RosyAccountTests(TestCase):
         self.sign_in()
         response = self.client.get('/accounts/rosy/session/')
         self.assertEqual(response.json(), {'authenticated': True, 'account_id': 'acct-1'})
-        self.assertEqual(response['Cache-Control'], 'no-store')
+        self.assertIn('no-store', response['Cache-Control'])  # set for every page by the security middleware
 
     def test_capabilities_become_harbor_groups(self):
         self.hub.capabilities = ['harbor.view', 'harbor.field', 'fleet.read']
