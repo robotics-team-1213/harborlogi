@@ -33,12 +33,16 @@ def ensure_field_episode(actor, inbound):
     from django.contrib.auth import get_user_model
     from harbor_web import services
     from harbor_web.models import FieldEpisode
+    from harbor_web.service_common import Conflict
     field = get_user_model().objects.get(username=PERSONA_ACCOUNTS['field'])
     episode = FieldEpisode.objects.filter(order=inbound, state='OPEN').order_by('-pk').first()
     if episode is None:
         return services.assign_episode(actor, order_id=inbound.pk, vehicle_id='합성 차량 P1', assigned_to=field)
     if episode.assigned_to_id != field.pk:
-        return services.reassign_episode(actor, episode_id=episode.pk, expected_version=episode.version, assigned_to=field)
+        try:
+            return services.reassign_episode(actor, episode_id=episode.pk, expected_version=episode.version, assigned_to=field)
+        except Conflict:  # e.g. a departure intent exists: keep the developer's episode as it is
+            print('Synthetic field episode stays with ' + episode.assigned_to.get_username() + ' (already in use).', flush=True)
     return episode
 
 

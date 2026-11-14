@@ -67,3 +67,16 @@ class EnsureFieldEpisodeTests(TestCase):
         before = list(FieldEpisode.objects.filter(order=self.inbound).values_list('pk', 'version', 'state'))
         product_preview.ensure_field_episode(self.actor, self.inbound)
         self.assertEqual(before, list(FieldEpisode.objects.filter(order=self.inbound).values_list('pk', 'version', 'state')))
+
+    def test_keeps_episode_that_cannot_be_reassigned(self):
+        from django.utils import timezone
+        from harbor_web.models import DepartureIntent, FieldConfirmation
+        episode = services.assign_episode(self.actor, order_id=self.inbound.pk, vehicle_id='합성 차량 P1', assigned_to=self.actor)
+        confirmation = FieldConfirmation.objects.create(created_by=self.actor, actor=self.actor, episode=episode,
+                                                        outcome='CLEAR', observed_at=timezone.now(), version=episode.version)
+        DepartureIntent.objects.create(created_by=self.actor, actor=self.actor, episode=episode, confirmation=confirmation,
+                                       vehicle_id=episode.vehicle_id, cargo=self.inbound.cargo)
+        before = list(FieldEpisode.objects.values_list('pk', 'version', 'state', 'assigned_to_id'))
+        result = product_preview.ensure_field_episode(self.actor, self.inbound)
+        self.assertEqual(result.pk, episode.pk)
+        self.assertEqual(before, list(FieldEpisode.objects.values_list('pk', 'version', 'state', 'assigned_to_id')))
