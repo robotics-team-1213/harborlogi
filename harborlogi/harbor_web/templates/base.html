@@ -10,21 +10,12 @@
 <script src="{% static 'harbor_web/product.js' %}" defer></script><script type="module" src="{% static 'harbor_web/yard-3d.js' %}"></script></head>
 <body><a class="skip" href="#main">본문으로 이동</a>
 <header class="topbar"><a class="brand" href="/"><img src="{% static 'harbor-app-icon-20261023.png' %}" alt="" width="32" height="32"><strong>HarborLogi</strong><span>항만 물류 관제</span></a>
-{% if user.is_authenticated %}<div class="topbar-context"><span class="crumb">{% block crumb %}{% if section == 'overview' %}운영 현황{% elif section == 'outbound' %}반출 관제{% elif section == 'cargo' %}화물·요청{% elif section == 'inventory' %}재고·관측{% elif section == 'work' %}실행·대조{% elif section == 'rearrangement' %}자동 재배치{% elif section == 'records' %}기록·검증{% elif section == 'field' %}현장 확인{% elif section == 'settings' %}설정·계정{% elif section == 'workflow' %}업무 안내{% endif %}{% endblock %}</span>{% block topbar_extra %}{% endblock %}</div>
+{% if user.is_authenticated %}<div class="topbar-context"><span class="crumb">{% block crumb %}{% for item in menu_pages %}{% if item.key == section %}{{ item.label }}{% endif %}{% endfor %}{% endblock %}</span>{% block topbar_extra %}{% endblock %}</div>
 <div class="account"><span class="environment">{% if web_mode == 'live' %}운영 연결{% else %}개발 환경{% endif %}</span><a href="{% url 'password_change' %}">{{ user.username }}</a><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="quiet" type="submit">로그아웃</button></form></div>{% endif %}</header>
 {% if user.is_authenticated %}<button id="nav-toggle" class="nav-toggle" type="button" aria-controls="navigation" aria-expanded="false" hidden>메뉴 열기</button>
 <aside class="sidebar" id="navigation"><nav aria-label="주 메뉴">
 <button class="nav-density" type="button" data-nav-density aria-label="메뉴 이름 펼치기" aria-expanded="false" hidden>{% include 'nav_icon.html' with icon='panel' %}<span class="nav-label">메뉴 접기</span></button>
-{% if can_read %}{% include 'nav_item.html' with href='/' key='overview' label='운영 현황' hint='조치가 필요한 업무' %}
-{% include 'nav_item.html' with href='/outbound/' key='outbound' label='반출 관제' hint='우선순위·재취급 계획' %}
-{% include 'nav_item.html' with href='/requests/' key='cargo' label='화물·요청' hint='화물 등록과 업무 지시' %}
-{% include 'nav_item.html' with href='/inventory/' key='inventory' label='재고·관측' hint='원본 배치와 설치 기준' %}
-{% include 'nav_item.html' with href='/work/' key='work' label='실행·대조' hint='인계 상태와 원본 근거' %}
-{% include 'nav_item.html' with href='/rearrangement/' key='rearrangement' label='자동 재배치' hint='허용 범위와 실행 기록' %}
-{% include 'nav_item.html' with href='/records/' key='records' label='기록·검증' hint='이력과 비교 결과' %}{% endif %}
-{% if can_field or can_operate or can_admin %}{% include 'nav_item.html' with href='/field/' key='field' label='현장 확인' hint='회차별 사실 확인' %}{% endif %}
-{% if can_admin %}{% include 'nav_item.html' with href='/settings/' key='settings' label='설정·계정' hint='팀 역할과 구역 맵' utility=True %}{% endif %}
-{% include 'nav_item.html' with href='/workflow/' key='workflow' label='업무 안내' hint='역할과 처리 순서' utility=True %}</nav><div class="sidebar-foot">{% for role in app_roles %}<span>{{ role }}</span>{% empty %}역할 미배정{% endfor %}<p>실행 승인·장치 운영은 ROSY Fleet에서 진행합니다.</p></div></aside><div id="nav-tooltip" class="nav-tooltip" role="tooltip" hidden></div>{% endif %}
+{% for group in nav_groups %}<div class="nav-group" role="group" aria-labelledby="nav-group-{{ group.key }}" data-nav-group="{{ group.key }}"><p class="nav-group-label" id="nav-group-{{ group.key }}">{{ group.label }}</p>{% for item in group.items %}{% include 'nav_item.html' with href=item.path key=item.key label=item.label hint=item.hint utility=item.utility %}{% endfor %}</div>{% endfor %}</nav><div class="sidebar-foot">{% for name in persona_names %}<span>{{ name }}</span>{% empty %}역할 미배정{% endfor %}<p>실행 승인·장치 운영은 ROSY Fleet에서 진행합니다.</p></div></aside><div id="nav-tooltip" class="nav-tooltip" role="tooltip" hidden></div>{% endif %}
 <main id="main" tabindex="-1" class="{% if not user.is_authenticated %}signed-out{% endif %}">
 {% if user.is_authenticated %}<button type="button" class="quiet back-button" data-history-back hidden><span aria-hidden="true">←</span> 이전 화면</button>{% endif %}
 {% for message in messages %}<div role="{% if message.level >= 40 %}alert{% else %}status{% endif %}" class="notice">{{ message }}</div>{% endfor %}
