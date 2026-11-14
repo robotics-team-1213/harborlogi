@@ -72,7 +72,7 @@ docker exec -i <Harbor 컨테이너> python - < tools/integration/connection_pro
 
 실제 Fleet 시험은 [실행 연결](execution.md#실제-fleet-계약-시험)의 `--transport-only`다.
 
-2026-11-14 현장 결과: 규칙 1·2·3·4·9 통과. 현장 R은 `port-events`가 없는 판이라 규칙 11은 미충족으로 표시된다. Rosy 계정 로그인은 설치 전이라 규칙 12·13·15는 확인하지 않았다. Account 로그인 왕복(실제 Account와의 PKCE)은 자동 시험이 아직 없다.
+2026-11-14 현장 결과: 규칙 1·2·3·4·9 통과. 현장 R은 `port-events`가 없는 판이라 규칙 11은 미충족으로 표시된다. 규칙 15는 같은 날 Harbor 화면 인증서를 공인 인증서로 바꿔 다른 PC에서 검증 오류 없이 열리는 것을 확인했다. Rosy 계정 로그인은 켜기 전이라 규칙 12·13은 확인하지 않았다([남은 단계](../deploy/compose/README.md#rosy-계정-로그인-연결)). Account 로그인 왕복(실제 Account와의 PKCE)은 자동 시험이 아직 없다.
 
 2026-10-29 경계 분리의 코드 소유권과 고정 HTTP·설치 검증은
 [완료 기록](validation/2026-10-29-complete-application-boundaries.md)을 따른다.

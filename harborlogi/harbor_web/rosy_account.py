@@ -58,7 +58,7 @@ def load_config(path):
             or not _origin_ok(value['issuer']) or not _origin_ok(value['callback'], path_allowed=True)
             or urlsplit(value['callback']).path != CALLBACK_PATH
             or not _RESOURCE.fullmatch(value['resource'])
-            or not re.fullmatch(r'[A-Za-z0-9._-]{1,128}', value['client_id'])):
+            or not re.fullmatch(r'[A-Za-z0-9._-]{1,96}', value['client_id'])):  # Account registers at most 96
         raise ImproperlyConfigured('HARBOR_ROSY_ACCOUNT_FILE needs exact issuer, client_id, site resource and callback.')
     return dict(value, issuer=value['issuer'].rstrip('/'))
 

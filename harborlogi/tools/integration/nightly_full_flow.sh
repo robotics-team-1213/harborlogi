@@ -40,6 +40,12 @@ nice -n 15 timeout 1800 "$WORK/venv/bin/python" -m tools.integration.real_fleet_
   > "$WORK/reports/$STAMP-via-r.log" 2>&1 || via_r=$?
 echo "via-r exit $via_r report $WORK/reports/$STAMP-via-r.json"
 [ "$via_r" = 0 ] || status=$via_r
+# Connection rules (docs/platform-contract.md 「연결 규약」) against the same platform.
+rules=0
+nice -n 15 timeout 900 "$WORK/venv/bin/python" -m tools.integration.real_fleet_http \
+  --platform-root "$RUN/platform" --platform-sha "$SHA" --transport-only > "$WORK/reports/$STAMP-rules.log" 2>&1 || rules=$?
+echo "connection rules exit $rules log $WORK/reports/$STAMP-rules.log"
+[ "$rules" = 0 ] || status=$rules
 # Keep two weeks of reports.
 find "$WORK/reports" -type f -mtime +14 -delete
 exit "$status"
