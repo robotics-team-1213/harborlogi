@@ -164,6 +164,11 @@ def main():
             assert not state['requests'], 'Reading settings must not contact Fleet'
             assert page.get_by_role('button', name='Fleet 연결 확인', exact=True).is_disabled()
             safe_page()
+            page.get_by_role('button', name='Fleet 자동 찾기', exact=True).click()
+            page.wait_for_load_state('networkidle')
+            assert page.get_by_text(CONNECTION_REASONS['FLEET_SITE_CA_REQUIRED'], exact=True).is_visible()
+            assert not FleetConnection.objects.exists() and not state['requests']
+            result['checks'].append('Discovery requires installed site CA and does not save identity or send bearer traffic')
             form = page.locator('form:has(input[name=action][value=save])')
             form.locator('[name=origin]').select_option(fleet_origin)
             form.locator('[name=principal]').fill(principal)
@@ -231,7 +236,7 @@ def main():
             login(restricted, 'operator')
             assert restricted.goto(origin + '/settings/integration/').status == 403
             csrf = next(cookie['value'] for cookie in restricted.context.cookies() if cookie['name'] == 'csrftoken')
-            for action in ('save', 'check'):
+            for action in ('save', 'check', 'discover'):
                 response = restricted.request.post(origin + '/settings/integration/',
                     form=dict(action=action, expected_version='1', origin=fleet_origin, principal=principal),
                     headers={'X-CSRFToken': csrf, 'Referer': origin + '/settings/integration/'})
@@ -243,7 +248,7 @@ def main():
             assert len(state['requests']) == 12 + 5 * READINESS_PROBES  # five checks reached a matched session
             assert token not in json.dumps(list(Audit.objects.values_list('detail', flat=True)))
             assert not errors, errors
-            result['checks'].append('Operator GET/save/check denied; four widths have no overflow; token absent from HTML/audit; all twelve Fleet requests are authenticated GETs; no Harbor Commands or Fleet jobs created')
+            result['checks'].append('Operator GET/save/check/discover denied; four widths have no overflow; token absent from HTML/audit; all twelve Fleet requests are authenticated GETs; no Harbor Commands or Fleet jobs created')
             result.update(status='PASSED', fleet_requests=state['requests'], browser_errors=errors)
             browser.close()
     except Exception:

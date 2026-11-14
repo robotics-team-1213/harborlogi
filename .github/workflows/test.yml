@@ -54,6 +54,7 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m pip install '.[web]'
+      - run: python -m unittest discover -s tests -p test_fleet_discovery.py -v
       - run: python -m django test harbor_web.tests --settings=harbor_web.settings --verbosity 1
       - run: python -m django makemigrations --check --dry-run --settings=harbor_web.settings
       - run: for t in tests/*.test.mjs; do node "$t" || exit 1; done

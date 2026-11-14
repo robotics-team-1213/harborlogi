@@ -57,6 +57,26 @@ DNS 해석 실패·인증서 검증 실패·기타 TLS 실패·응답 시간 초
 
 실행 모니터 화면의 대조는 원래 요청 key·mission·본문·신원을 검증한다. receipt는 물리 근거이고 전체 업무 완료와 다르다. 현재 상태와 부족한 조건은 원래 업무 화면에서 확인한다. LLM이나 UI의 다른 진입점도 동일한 설정·권한·명령 경계를 사용해야 한다.
 
+## 같은 LAN 자동 발견 (2026-10-29)
+
+ROSY의 [현장 발견 계약](https://github.com/robotics-team-1213/rosy-platform/blob/main/docs/reference/site-lan-discovery-profile.md)을 소비한다. Fleet은 `_rosy-fleet._tcp.local.`을 광고하고 Harbor가 공개 HTTPS API로 요청·결과 조회를 한다. 현재 결과 전달은 polling이므로 Fleet이 Harbor 주소를 찾거나 callback 서버에 연결할 필요는 없다.
+
+설치 담당자는 사이트 이름·포트와 사이트 CA를 별도 신뢰 경로로 제공한다. Harbor의 `HARBOR_FLEET_ALLOWED_ORIGINS`에 승인한 `https://site-pc.local:8443` 형태의 이름을 등록하고 `HARBOR_FLEET_CA_FILE`에 읽을 수 있는 PEM CA 파일 경로를 설정한다. 이 예시는 설치 형식이며 실제 사이트 정보가 아니다. 배포가 연결을 고정하면 기존 `HARBOR_FLEET_ORIGIN`·`HARBOR_FLEET_PRINCIPAL`을 쓴다. [설정 예시](../../deploy/web/site-link.env.example)를 설치 환경에서 채우며 서비스 토큰은 비밀 관리 경로로 별도 공급한다. `pip install '.[web]'`에 DNS-SD 구현인 python-zeroconf가 포함된다.
+
+관리자의 **Fleet 자동 찾기** POST는 LAN을 검색하고 승인 목록에 있는 사이트의 이름·포트·CA·정상 health만 확인한다. 미승인 광고는 인증 요청·토큰 전송 대상이 되지 않는다. 검색은 프로필·Command를 만들거나 사이트를 자동 선택하지 않는다. 관리자는 기존 폼에서 사이트와 서비스 신원을 저장하고 **Fleet 연결 확인**으로 service principal/ARM 조회 API를 별도 확인한다. 광고의 이름은 설치자가 제공한 예상 사이트 이름을 대신하지 않는다.
+
+같은 POST는 사이트 health 검증 후 자격 없이 `/openapi.json`을 최대3MiB까지 읽어 ARM 작업 루트의 GET/POST가 공개됐는지도 표시한다. 공개 경로 있음·문서 기준 미공개·확인 전을 구분하며, schema 비공개/오류/잘린 응답 때문에 이미 찾은 사이트를 지우지 않는다. 이 표시는 서비스 권한·설치·실행 준비를 증명하거나 인증 검사를 대체하지 않는다. 마지막 검색 결과와 시각은 설정·CA 내용·승인 사이트 목록에 결속해 저장하고 GET에서는 저장된 관측만 표시한다. 설치값이 바뀌면 과거 결과를 재사용하지 않는다.
+
+CA 파일 없음·읽기 실패·잘못된 PEM은 LAN 검색 전에 중단한다. Fleet 상태 요청 실패는 bearer 인증 실패와 구별하고, 잘린 HTTP 응답도 정상 오류 경로로 처리한다. 다른 서브넷/VPN의 TCP 연결 성공은 mDNS 전달을 보장하지 않으므로 Harbor 서버와 Fleet의 같은 LAN 연결 또는 별도 승인된 망 밖 경로를 확인한다.
+
+CA가 설정된 HTTPS `.local` origin은 연결 검사와 실행 Registry, 기존 조회 preview 모두 HTTP 요청마다 새로 DNS-SD를 조회한다. 저장된 origin·Host·TLS 이름·요청 키는 유지하고 socket IP만 발견 결과를 쓴다. 인증서 검증과 무자격 `/healthz` 확인을 통과한 주소로만 bearer를 보낸다. 3초 검색과 기존 요청 timeout이 별도로 적용되므로 여러 API를 조회하는 조작에는 그만큼 시간이 추가된다. 기본 브라우저 DNS가 `.local`을 해석할 수 있어야 콘솔 링크도 열린다. 이 기능은 Harbor 서버의 발견·HTTPS 전송을 제공하며 브라우저 DNS 설정을 변경하지 않는다.
+
+중복 TXT·다른 역할/계약·잘못된 주소는 버린다. 같은 예상 이름의 서로 다른 IP/포트, 승인 포트 불일치, 해석되지 않은 서비스와 64개 서비스 상한 초과는 후보 하나를 임의 선택하지 않고 실패한다. 사이트가 없어지거나 TLS/health가 실패하면 다른 사이트나 수동 DNS로 조용히 전환하지 않는다. POST는 자동 재전송하지 않으며 기존 request key로 원본 대조를 유지한다. IPv4 LAN만 지원한다.
+
+운영 전 Fleet의 기존 `rosy-fleet-advertise.service`, TLS proxy와 인증서 SAN·사이트 CA를 확인하고 두 서버가 같은 링크에서 UDP 5353을 주고받을 수 있어야 한다. VLAN·격리 Wi-Fi에서 mDNS가 차단되면 설치자가 기존 수동 origin/정상 DNS 경로를 별도로 선택한다. 원래 IP origin에 이미 Command가 있다면 DB를 이름 origin으로 덮어쓰지 않는다. 원래 실행의 대조와 복구를 마친 뒤 기존 이관 절차를 따른다. CA/토큰/신뢰 설정 교체 후 서버를 재시작하고 연결을 다시 확인한다.
+
+실패 화면은 사이트 미발견·광고 충돌·포트 차이·검색기 불가·TLS 불신·상태 미확인을 구분한다. 사이트 CA가 없으면 설치를 안내한다. 검색 결과는 그 검색 시점의 관측이며 실행 준비나 물리 수용을 뜻하지 않는다. CA 파일 내용이 바뀌어도 기존 조회 검사 성공을 재사용하지 않는다. [검증 기록](../validation/2026-10-29-fleet-lan-discovery.md)에서 로컬 DNS-SD/TLS·브라우저와 실제 사이트 수용을 구분한다.
+
 ## 검증
 
 프로필 버전 충돌, allowlist 거절, 배포 설정 우선, 기존 Command identity 변경 거절, 현재 설정/토큰과 검사 fingerprint 결속, GET 무통신·무쓰기, 역할·CSRF·비밀 비노출을 Django 시험으로 확인한다. 격리 HTTP double+실제 브라우저 시험과 고정된 실제 Fleet HTTP 시험은 별도 근거로 기록한다. 둘 다 합성 장치로 실행하면 실물 수용은 아니다.

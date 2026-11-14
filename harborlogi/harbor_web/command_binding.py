@@ -31,7 +31,8 @@ def _config():
         raise ValidationError('INVALID_FLEET_PRINCIPAL')
     evidence_sources = configured_sources()  # Raises on malformed or overlapping sets.
     return dict(path=Path(path).resolve(), origin=origin.rstrip('/'), token=token,
-                principal=principal, bindings=bindings, evidence_sources=evidence_sources)
+                principal=principal, bindings=bindings, evidence_sources=evidence_sources,
+                ca_file=connection['ca_file'] or None)
 
 
 def _identity(config):

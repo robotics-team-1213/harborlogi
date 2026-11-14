@@ -26,6 +26,7 @@ demo의 `/planning`은 기존 `plan_outbound`를 호출하는 합성 재고·반
 |---|---|
 | `HARBOR_FLEET_ORIGIN` | Fleet HTTPS origin 또는 loopback HTTP. path/query/userinfo 금지 |
 | `HARBOR_FLEET_TOKEN` | 해당 작업 조회 권한의 Bearer 자격. 서버 전용 |
+| `HARBOR_FLEET_CA_FILE` | 선택: 사이트 PEM CA 파일. HTTPS `.local` origin과 함께 쓰면 DNS-SD로 IP를 다시 찾음. `.[web]` 설치 필요 |
 | `HARBOR_FLEET_CONSOLE_URL` | 선택: 별도 로그인할 Fleet 콘솔 URL. HTTPS 또는 loopback HTTP, 자격·query·fragment 금지 |
 
 접속 변수 둘 다 없으면 장부만 표시하고 실행은 연결 설정 필요로 남긴다. 하나만 있으면 시작을 거절한다. 연결 실패를 데모로 대체하지 않는다. 콘솔 주소가 없으면 mission ID를 복사해 담당자에게 인계한다.

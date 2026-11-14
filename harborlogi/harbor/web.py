@@ -216,7 +216,7 @@ def main():
         if not args.demo:
             origin, token = os.environ.get('HARBOR_FLEET_ORIGIN'), os.environ.get('HARBOR_FLEET_TOKEN')
             if origin or token:
-                client = RosyClient(origin, token, timeout=3)
+                client = RosyClient(origin, token, timeout=3, ca_file=os.environ.get('HARBOR_FLEET_CA_FILE') or None)
         view = Workbench(DemoLedger() if args.demo else ReadOnlyLedger(args.ledger), client,
                          demo=args.demo, console_url=None if args.demo else os.environ.get('HARBOR_FLEET_CONSOLE_URL'))
         view.tasks()  # Fail startup without creating/recovering an invalid ledger.

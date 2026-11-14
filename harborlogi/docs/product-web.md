@@ -2,6 +2,8 @@
 
 Fleet의 UI 연결 프로필·서버 토큰·명시적 신원/ARM 조회 검사는 [연결 설정](design/25-fleet-connection-bridge.md)을 따른다. schema migration0011 적용 후 서버를 시작한다. 기존 배포 origin은 우선하며 UI에서 바꿀 수 없다. 운영 Fleet 주소·서비스 principal은 해당 설치 담당자가 제공해야 한다.
 
+같은 LAN에서는 **Fleet 자동 찾기**로 승인된 사이트를 확인한다. 설치된 `.local` 사이트 이름과 `HARBOR_FLEET_CA_FILE`의 CA를 사용하면 이후 IP가 바뀌어도 같은 사이트를 다시 찾는다. [설치 예시](../deploy/web/site-link.env.example)와 [발견·재접속 규칙](design/25-fleet-connection-bridge.md#같은-lan-자동-발견-2026-10-29)을 따른다. 최초 사이트 확인과 서비스 자격 설치는 필요하며 다른 사이트로 자동 이관하지 않는다.
+
 현재 페이지별 업무 목적과 다음 조치는 [운영 흐름](design/17-operator-page-flow.md), 실제 ROSY 호출과 승인 화면 배포 기준은 [파이프라인](design/18-harbor-rosy-pipeline.md)을 따른다. 웹에서는 `/workflow/`로 역할별 안내, 관리자는 `/settings/integration/`로 설정·수용 조건을 확인한다. 실행 메뉴 이름은 ‘실행·대조’다.
 
 새 Fleet ARM 화면을 포함한 배포에서만 `HARBOR_FLEET_ARM_CONSOLE_ENABLED=1`을 설정한다(기본 미선언). 이 값은 설치 선언이며 API 호환성·승인·물리/업무 수용의 증거가 아니다. 미선언 상태에서는 작업 ID와 일반 Fleet 콘솔로 인계하고 지원되지 않는 승인 바로가기를 약속하지 않는다.

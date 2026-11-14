@@ -20,4 +20,4 @@ harbor = ["web_assets/*.html", "web_assets/*.css", "web_assets/*.js"]
 "share/harborlogi/brand" = ["assets/brand/harbor-app-icon-20261023.png", "assets/brand/harborlogi-github-banner-20261023.png"]
 
 [project.optional-dependencies]
-web = ["Django>=5.2.18,<5.3", "waitress>=3.0.2,<4", "django-axes>=8.3.1,<9", "whitenoise>=6.12,<7"]
+web = ["Django>=5.2.18,<5.3", "waitress>=3.0.2,<4", "django-axes>=8.3.1,<9", "whitenoise>=6.12,<7", "zeroconf>=0.151.0,<1"]

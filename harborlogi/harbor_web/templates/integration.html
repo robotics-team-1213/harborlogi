@@ -15,6 +15,15 @@
 <p><a href="/work/">원래 실행 요청·결과 대조 보기</a> · <a href="/outbound/">반출 업무 검토</a></p>
 </section>
 <section class="form-panel" aria-labelledby="connection-heading"><h2 id="connection-heading" tabindex="-1">Fleet 연결 설정</h2>
+<h3>같은 LAN에서 Fleet 자동 찾기</h3>
+<p>설치 담당자가 승인한 사이트를 찾습니다. 처음에는 연결할 사이트를 확인하고 저장하세요. 이후 IP가 바뀌어도 같은 사이트 이름으로 다시 찾습니다.</p>
+<form method="post" data-command>{% csrf_token %}<input type="hidden" name="action" value="discover"><input type="hidden" name="expected_version" value="{{ connection_config.version }}"><button type="submit">Fleet 자동 찾기</button></form>
+{% if discovery_result %}
+<div role="status">{% if discovered_origins %}<p>이번 검색에서 사이트 인증과 정상 응답을 확인했습니다. 서비스 신원·API 확인은 별도로 진행하세요.</p><ul>{% for origin in discovered_origins %}<li>{{ origin }}</li>{% endfor %}</ul>{% else %}<p>연결 가능한 승인 사이트를 찾지 못했습니다. 사이트 CA·승인된 .local 이름·같은 LAN과 UDP 5353을 확인하세요.</p>{% endif %}
+{% if discovery_checked_at %}<p class="helptext">검색 시점 {{ discovery_checked_at|date:'Y-m-d H:i:s T' }} · 당시 관측이며 현재 실행 준비를 뜻하지 않습니다.</p>{% endif %}
+{% for site in discovery_sites %}<p>{{ site.origin }}: {{ site.message }}</p>{% endfor %}
+{% for failure in discovery_failures %}<p>{{ failure.origin }}: {{ failure.message }}</p>{% endfor %}</div>
+{% endif %}
 {% if connection_config.source == 'deployment' %}
 <p class="notice info">배포 서버에서 관리하는 연결입니다. 변경은 설치 담당자가 서버 설정에서 진행합니다.</p>
 <dl class="facts"><div><dt>연결 주소</dt><dd>{{ connection.origin|default:'유효한 주소 필요' }}</dd></div><div><dt>서비스 신원</dt><dd>{{ connection_config.principal|default:'미설정' }}</dd></div></dl>
@@ -24,7 +33,7 @@
 <p>현재 Fleet이 연결되지 않았습니다. 설치 담당자가 이 서버에서 사용할 Fleet 주소와 서비스 자격을 먼저 등록해야 합니다.</p>
 <p class="helptext">허용된 주소가 준비되면 이 화면에서 연결할 Fleet과 서비스 신원을 선택할 수 있습니다.</p>
 {% endif %}
-<details><summary>설치 담당자용 서버 설정</summary><p>UI에서 선택할 주소는 <code>HARBOR_FLEET_ALLOWED_ORIGINS</code>에 쉼표로 구분합니다. <code>HARBOR_FLEET_ORIGIN</code>을 지정하면 배포 서버가 연결을 고정합니다. 토큰은 화면과 DB에 저장하지 않고 서버에서만 관리합니다.</p>
+<details><summary>설치 담당자용 서버 설정</summary><p>UI에서 선택할 주소는 <code>HARBOR_FLEET_ALLOWED_ORIGINS</code>에 쉼표로 구분합니다. <code>HARBOR_FLEET_ORIGIN</code>을 지정하면 배포 서버가 연결을 고정합니다. 승인된 HTTPS .local 주소와 <code>HARBOR_FLEET_CA_FILE</code>의 사이트 CA를 설치하면 연결할 때마다 IP를 자동으로 찾습니다. 토큰은 화면과 DB에 저장하지 않고 서버에서만 관리합니다.</p>
 <ul>{% for item in server_inputs %}<li>{{ item.label }}: {% if item.present %}설정 있음{% else %}설정 필요{% endif %} · <code>{{ item.variable }}</code></li>{% endfor %}</ul><p>주소·신원은 제출과 결과 대조가 같은 설정을 사용합니다. 원래 실행이 있는 동안 연결 신원을 바꾸지 않습니다.</p></details>
 </section></div>
 <section class="form-panel" aria-labelledby="readiness-heading"><h2 id="readiness-heading">운영 실행 조건 점검표</h2>

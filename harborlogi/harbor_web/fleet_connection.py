@@ -5,12 +5,15 @@ import os
 import socket
 import ssl
 import uuid
+from pathlib import Path
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from harbor.rosy_http import RosyClient
+from harbor.fleet_discovery import DiscoveryError, HOSTNAME
 from harbor_web.coordination import queue_lock, serialized
 from harbor_web.models import Audit, Command, FleetConnection
 from harbor_web.services import _role
@@ -37,17 +40,92 @@ def connection_settings():
     if origin:
         return dict(origin=origin, principal=os.environ.get('HARBOR_FLEET_PRINCIPAL', ''),
             arm_console_enabled=os.environ.get('HARBOR_FLEET_ARM_CONSOLE_ENABLED') == '1',
-            version=0, source='deployment', allowed=True)
+            version=0, source='deployment', allowed=True, ca_file=os.environ.get('HARBOR_FLEET_CA_FILE', ''))
     profile = FleetConnection.objects.first()
     return dict(origin=profile.origin if profile else '', principal=profile.principal if profile else '',
         arm_console_enabled=profile.arm_console_enabled if profile else os.environ.get('HARBOR_FLEET_ARM_CONSOLE_ENABLED') == '1',
         version=profile.version if profile else 0, source='web',
-        allowed=bool(profile and profile.origin in allowed_origins()))
+        allowed=bool(profile and profile.origin in allowed_origins()), ca_file=os.environ.get('HARBOR_FLEET_CA_FILE', ''))
 
 
 def fingerprint(config):
-    return hashlib.sha256(json.dumps(dict(config, token=os.environ.get('HARBOR_FLEET_TOKEN', '')),
+    ca_digest = ''
+    if config.get('ca_file'):
+        try:
+            ca_digest = hashlib.sha256(Path(config['ca_file']).read_bytes()).hexdigest()
+        except OSError:
+            ca_digest = 'unreadable'
+    return hashlib.sha256(json.dumps(dict(config, ca_digest=ca_digest, token=os.environ.get('HARBOR_FLEET_TOKEN', '')),
                                     sort_keys=True).encode()).hexdigest()
+
+
+def fleet_client(config, token, *, timeout=10):
+    return RosyClient(config['origin'], token, timeout=timeout, ca_file=config.get('ca_file') or None)
+
+
+def _network_reason(error):
+    cause = error.reason if isinstance(error, URLError) else error
+    return ('FLEET_DNS_UNRESOLVED' if isinstance(cause, socket.gaierror) else
+        'FLEET_TLS_UNTRUSTED' if isinstance(cause, ssl.SSLCertVerificationError) else
+        'FLEET_TLS_FAILED' if isinstance(cause, ssl.SSLError) else
+        'FLEET_TIMEOUT' if isinstance(cause, TimeoutError) else 'FLEET_UNREACHABLE')
+
+
+def _discovery_origins(config):
+    installed = [config['origin']] if config['source'] == 'deployment' else allowed_origins()
+    origins = []
+    for origin in installed:
+        try:
+            parsed = urlsplit(origin)
+            if parsed.scheme == 'https' and HOSTNAME.fullmatch(parsed.hostname or '') and parsed.port != 0:
+                origins.append(origin)
+        except ValueError:
+            continue
+    return origins
+
+
+def last_discovery():
+    config = connection_settings()
+    current = fingerprint(dict(config, installed=_discovery_origins(config)))
+    return Audit.objects.filter(action='fleet.discover', detail__fingerprint=current).order_by('-pk').first()
+
+
+def discover_connections(actor, *, expected_version):
+    from harbor.fleet_discovery import browse_fleets, endpoint_opener, select_endpoint, site_ssl_context, public_api_status
+    _role(actor, 'admin')
+    config = connection_settings()
+    if config['version'] != expected_version:
+        raise ValidationError('CONNECTION_CHANGED')
+    if not config['ca_file']:
+        raise ValidationError('FLEET_SITE_CA_REQUIRED')
+    installed = _discovery_origins(config)
+    if not installed:
+        raise ValidationError('FLEET_DISCOVERY_CONFIGURATION')
+    original = fingerprint(dict(config, installed=installed))
+    try:
+        site_ssl_context(config['ca_file'])
+        candidates = browse_fleets()
+    except DiscoveryError as error:
+        raise ValidationError(str(error)) from error
+    found, failures, sites = [], [], []
+    for origin in installed:
+        try:
+            candidate = select_endpoint(candidates, origin)
+            opener = endpoint_opener(candidate, origin, config['ca_file'], 5)
+            found.append(origin)
+            sites.append(dict(origin=origin, api=public_api_status(opener, origin, 5)))
+        except DiscoveryError as error:
+            failures.append(dict(origin=origin, reason=str(error)))
+        except (URLError, OSError) as error:
+            failures.append(dict(origin=origin, reason=_network_reason(error)))
+    with queue_lock:
+        current = connection_settings()
+        if original != fingerprint(dict(current, installed=_discovery_origins(current))):
+            raise ValidationError('CONNECTION_CHANGED')
+        result = dict(origins=found, sites=sites, failures=failures)
+        Audit.objects.create(actor=actor, action='fleet.discover', object_type='FleetConnection', object_id='1',
+                             detail=dict(result, fingerprint=original))
+    return result
 
 
 @serialized
@@ -159,7 +237,7 @@ def check_connection(actor, *, expected_version):
     if config['origin'] and config['principal'] and token and config['allowed']:
         stage = 'session'
         try:
-            client = RosyClient(config['origin'], token, timeout=5)
+            client = fleet_client(config, token, timeout=5)
             session = client.session()
             if not isinstance(session.get('principal_id'), str) or not isinstance(session.get('role'), str):
                 result['reason'] = 'SESSION_SCHEMA_UNCONFIRMED'
@@ -182,13 +260,10 @@ def check_connection(actor, *, expected_version):
                     'AUTHORIZATION_FAILED' if status == 403 else
                     'ARM_NOT_INSTALLED' if stage == 'arm' and status == 503 and code == 'ARM_TRANSFER_JOB_UNAVAILABLE' else
                     'ARM_API_UNCONFIRMED' if stage == 'arm' else 'SESSION_API_UNCONFIRMED')
+        except DiscoveryError as error:
+            result['reason'] = str(error)
         except (URLError, TimeoutError, OSError) as error:
-            cause = error.reason if isinstance(error, URLError) else error
-            result['reason'] = (
-                'FLEET_DNS_UNRESOLVED' if isinstance(cause, socket.gaierror) else
-                'FLEET_TLS_UNTRUSTED' if isinstance(cause, ssl.SSLCertVerificationError) else
-                'FLEET_TLS_FAILED' if isinstance(cause, ssl.SSLError) else
-                'FLEET_TIMEOUT' if isinstance(cause, TimeoutError) else 'FLEET_UNREACHABLE')
+            result['reason'] = _network_reason(error)
         except (ValueError, TypeError, AttributeError):
             result['reason'] = 'INVALID_FLEET_RESPONSE'
         if result['session'] == 'MATCHED':

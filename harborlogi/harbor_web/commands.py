@@ -14,7 +14,6 @@ from django.utils import timezone
 from harbor.ownership import WriterLease
 from harbor.ledger import ReadOnlyLedger, plan_payload
 from harbor.process import ArmTransferBinding
-from harbor.rosy_http import RosyClient
 from harbor.execution import read_arm_execution, validate_arm_execution, cancel_execution
 from harbor.workflow import BusinessLedger
 from harbor_web.command_models import ACTIVE_COMMAND_STATES
@@ -110,7 +109,8 @@ class Registry:
                                          human_placement_sources=(human.HUMAN_PLACEMENT_SOURCE,),
                                          human_retreat_sources=(human.HUMAN_RETREAT_SOURCE,),
                                          human_freshness=human.FRESHNESS)
-            self.client = RosyClient(config['origin'], config['token'])
+            from harbor_web.fleet_connection import fleet_client
+            self.client = fleet_client(config, config['token'])
             self.client.expected_principal = config['principal']
             self.client.expected_role = 'service'
             self.locks = {}
