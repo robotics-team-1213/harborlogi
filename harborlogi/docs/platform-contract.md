@@ -2,6 +2,78 @@
 
 전체 책임 구분은 [Harbor와 ROSY의 책임](responsibilities.md)과 [ADR0028](adr/0028-control-units-device-owners-and-hosts.md)을 따른다. Harbor 업무·R/셀의 원장/admission·CORE/OMX 최종 실행·공통 서비스·호스트는 별개다. 이 문서의 고정 플랫폼 SHA·API 버전·당시 시험 근거는 이번 책임 안내 갱신으로 바꾸지 않는다. ARM 증거·재검사의 직계 자식 제한과 주행 위임/셀 ARM 승인 구분도 위 책임 안내에서 확인한다.
 
+## 연결 규약
+
+Harbor와 ROSY가 서로 닿는 길과 지켜야 할 규칙을 한곳에 적는다. 근거와 배경은 각 ADR에 있고, 이 절과 ADR이 다르면 이 절을 고친 뒤 ADR을 맞춘다. 2026-11-14에 양쪽 코드와 현장 응답을 대조해 정했다.
+
+### 통신 경로
+
+| 경로 | 방향 | 전송 | 신원 확인 | 권한 |
+|---|---|---|---|---|
+| A. 업무 요청 | Harbor 서버 → 통합관제 R의 Fleet REST | https, 사이트 CA로 검증 | service principal 하나의 Bearer 토큰 | R이 `service` 역할로 제한. Harbor는 제안과 조회만 한다 |
+| B. 화면 | 브라우저 → Harbor | https(자체 프록시), HSTS·Secure 쿠키 | Harbor 세션 | Harbor 그룹 viewer·operator·field·admin |
+| C. 사람 로그인 | 브라우저 ↔ Rosy Account, Harbor 서버 → Account | https, Account 인증서로 검증 | authorization code + PKCE | Account의 `harbor.*` 권한 네 개 |
+| D. 셀 실행 | R → 셀 | ROSY 내부(D-965) | ROSY 소유 | Harbor는 셀을 부르지 않는다 |
+| E. 역방향 | ROSY → Harbor | 없음 | 없음 | ROSY는 Harbor를 부르지 않는다 |
+
+A와 C는 주소가 서로 다를 수 있다. Fleet 주소는 `HARBOR_FLEET_ORIGIN`, Account 주소는 `HARBOR_ROSY_ACCOUNT_FILE`의 `issuer`가 정본이다.
+
+### 규칙
+
+전송과 신뢰
+
+1. Harbor가 R과 Account를 부를 때는 https만 쓴다. 평문 http는 같은 PC 안의 시험(loopback)에서만 허용한다. redirect는 따라가지 않는다.
+2. 인증서와 호스트 이름 검증을 끄지 않는다. 주소는 인증서에 적힌 이름으로 설정하고 IP 주소로 적지 않는다. 사설 CA는 `SSL_CERT_FILE`로만 더한다.
+
+기계 신원(경로 A)
+
+3. Harbor 서버는 R이 발급한 service principal 하나(96자 이하)의 Bearer 토큰만 쓴다. 토큰은 서버 환경 변수에만 두고 DB·화면·기록에 남기지 않는다. 사람의 로그인 토큰으로 R을 부르지 않는다.
+4. 실행 경로는 R을 부를 때마다 먼저 `GET /api/fleet/session`으로 `principal_id`가 설정값과 같고 `role`이 `service`인지 확인한다. 다르면 요청을 보내지 않는다.
+5. Harbor는 작업을 제안하고 결과를 읽기만 한다. 승인(admission)은 ROSY가 하고, 셀 API는 직접 부르지 않는다.
+
+REST 요청(경로 A)
+
+6. 모든 쓰기 요청은 본문에 `request_key`를 넣고, 보내기 전에 Harbor 장부에 그 키와 내용을 기록한다. 같은 키로 다른 내용을 보내지 않는다.
+7. 쓰기 POST는 키마다 한 번만 보낸다. 응답을 못 받았거나 오류가 나면 결과를 모르는 상태로 두고 다시 보내지 않는다. 같은 키의 `GET ?request_key=` 조회로만 결과를 맞춘다. HTTP 단위 재시도는 없고, 조회는 명령마다 5초에서 300초까지 간격을 늘리며 반복한다.
+8. Fleet API에는 버전 번호 응답이 없다. 호환 여부는 기능마다 읽기 전용 조회로 판정한다. 없는 키에 R이 자기 `code`를 붙여 거절하면 그 기능이 있는 것이고, `code` 없는 404와 503은 없는 것이다. 있다고 확인된 기능만 켠다.
+9. 오류 본문은 `{"detail": {"code": "..."}}` 모양이다. 401과 403은 신원 문제이므로 재시도하지 않고 연결 확인으로 보낸다. 404는 화물이나 작업이 없다는 근거로 쓰지 않는다.
+10. `port-events`의 cursor는 뜻을 해석하지 않고 Fleet 연결마다 저장해 그대로 돌려보낸다. 응답은 `events`·`cursor`·`complete` 세 값만 받는다. 사건 하나라도 받아들이지 못하면 cursor를 올리지 않는다. R이 한 번도 답하기 전에는 화물을 분실로 판정하지 않는다.
+11. R에 `port-events` 경로가 없으면 연결 확인 결과에 「R 항만 이벤트 조회 경로 설치」가 미충족으로 보여야 한다. 조용히 넘기지 않는다.
+
+사람 로그인(경로 C)
+
+12. Rosy 계정 로그인은 authorization code, S256 PKCE, `state` 대조로만 한다. 토큰은 Harbor 서버가 Account에서 직접 받고 URL에 싣지 않는다. 운영 `issuer`와 `callback`은 https다. Harbor는 토큰 서명을 따로 검증하지 않으므로 브라우저를 거쳐 온 토큰은 믿지 않는다.
+13. Harbor가 받는 권한은 `harbor.view`·`harbor.operate`·`harbor.field`·`harbor.admin` 네 개뿐이다. 하나도 없으면 로그인을 거절하고 토큰을 회수한다. 10초마다 Account에 다시 확인한다. Account가 답하지 않으면 마지막 토큰의 만료 시각까지만 유지한다. 로컬 Harbor 로그인은 복구용으로 항상 남긴다.
+14. Harbor와 Account가 도는 PC는 시계를 NTP로 맞춘다. ROSY 쪽 토큰 검증은 발급 시각을 10초 여유로 검사하고, Harbor는 만료 시각만 자기 시계로 본다.
+15. Rosy 계정 로그인을 켜려면 Harbor 화면의 인증서를 운영자 브라우저가 신뢰해야 한다. HSTS가 켜져 있어 브라우저 경고를 넘길 수 없다.
+
+방향
+
+16. ROSY는 Harbor를 부르지 않는다. 두 제품은 경로 A와 C로만 이어진다.
+
+### 규칙별 확인 방법
+
+| 규칙 | 자동 시험 | 실제 Fleet(로컬) | 현장 읽기 전용 점검 |
+|---|---|---|---|
+| 1·2 | `tests/test_http_execution.py`(평문·redirect 거절) | - | `connection_probe` 1·2 |
+| 3·4·5 | `tests/test_service_trust.py`, `harbor_web/tests/test_fleet_connection.py` | `transport_http.py` | `connection_probe` 3·4 |
+| 6·7 | `tests/test_transport_execution.py`, `tests/test_http_execution.py` | `transport_http.py`(응답 유실 뒤 조회로 복구) | - |
+| 8·9·11 | `harbor_web/tests/test_fleet_connection.py`, `harbor_web/tests/test_readiness.py` | `transport_http.py` | `connection_probe` 9·11 |
+| 10 | `tests/test_port_events.py` | `transport_http.py`(경로가 있는 플랫폼에서) | - |
+| 12·13 | `harbor_web/tests/test_rosy_account.py` | 없음 | `connection_probe` 12·13(로그인 설정 시) |
+| 14·15 | 없음(설치 담당자 확인) | - | - |
+| 16 | 해당 코드 없음 | - | - |
+
+현장 점검은 실행 중인 Harbor 컨테이너 안에서 돌린다. 조회만 하며 주소와 토큰을 출력하지 않는다.
+
+```
+docker exec -i <Harbor 컨테이너> python - < tools/integration/connection_probe.py
+```
+
+실제 Fleet 시험은 [실행 연결](execution.md#실제-fleet-계약-시험)의 `--transport-only`다.
+
+2026-11-14 현장 결과: 규칙 1·2·3·4·9 통과. 현장 R은 `port-events`가 없는 판이라 규칙 11은 미충족으로 표시된다. 규칙 15는 같은 날 Harbor 화면 인증서를 공인 인증서로 바꿔 다른 PC에서 검증 오류 없이 열리는 것을 확인했다. Rosy 계정 로그인은 켜기 전이라 규칙 12·13은 확인하지 않았다([남은 단계](../deploy/compose/README.md#rosy-계정-로그인-연결)). Account 로그인 왕복(실제 Account와의 PKCE)은 자동 시험이 아직 없다.
+
 2026-10-29 경계 분리의 코드 소유권과 고정 HTTP·설치 검증은
 [완료 기록](validation/2026-10-29-complete-application-boundaries.md)을 따른다.
 업무 장부·명령 서비스·화면은 어댑터의 정규화 결과를 소비하며, Fleet wire 검증은

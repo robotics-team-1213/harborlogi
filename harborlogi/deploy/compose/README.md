@@ -17,7 +17,7 @@ R 호스트(R과 같은 호스트)에서 이 저장소의 고정 커밋을 체�
 1. `harbor.env.example`을 저장소 밖(예: `~/.config/harbor/harbor.env`, 권한 600)에 복사하고 채운다. R origin·principal·token은 R 설치 담당자에게 받는다.
 2. 저장소 밖 폴더 두 개를 준비한다.
    - 설정 폴더: 설치 binding `bindings.json`을 넣는다. R 인증서가 사설 CA이면 `r-ca.pem`도 넣는다.
-   - TLS 폴더: Harbor 자기 인증서 `fullchain.pem`과 `private-key.pem`을 넣는다. R 인증서를 빌려 쓰지 않는다.
+   - TLS 폴더: Harbor 자기 인증서 `fullchain.pem`과 `private-key.pem`을 넣는다. R 인증서를 빌려 쓰지 않는다. 운영자 브라우저가 신뢰하는 인증서여야 한다([연결 규약](../../docs/platform-contract.md#연결-규약) 15). 호스트가 tailnet 이름으로 열려 있으면 `tailscale cert`로 그 이름의 공인 인증서를 이 폴더에 받고, 매일 갱신을 확인한 뒤 `nginx -s reload` 하는 timer를 둔다.
 3. 환경 변수를 지정한다: `HARBOR_ENV_FILE`, `HARBOR_CONFIG_DIR`, `HARBOR_TLS_DIR`, `HARBOR_HOSTNAME`, `HARBOR_BACKUP_DIR`, 그리고 R·CELL-A와 겹치지 않는 `HARBOR_HTTPS_PORT`(기본 9443. R 호스트에서 443·8443은 rosy-site가 쓴다. 옛 robttt 설치 때는 8543도 CELL-A가 썼다. 설치 전에 `ss -ltn`으로 다시 확인한다).
 4. 다음 순서로 실행한다.
 
@@ -87,8 +87,9 @@ Rosy 계정으로 로그인하는 수신기는 팀 main에 병합되어 있다([
 2. 설정 폴더(`HARBOR_CONFIG_DIR`, 컨테이너 안 `/config`)에 JSON 파일을 둔다. 키는 `issuer`, `client_id`, `resource`, `callback` 네 개뿐이고 비밀 값은 넣지 않는다. 하나라도 틀리면 Harbor가 시작하지 않는다.
 3. env 파일에 `HARBOR_ROSY_ACCOUNT_FILE=/config/rosy-account.json`을 적고 `harbor`를 다시 띄운다.
 4. 팀원의 Harbor 권한(`harbor.*`)은 Rosy 계정 화면에서 준다.
+5. 켠 뒤에는 ROSY의 사이트 로그인 점검(`deploy/site/account_login_check.py`)의 앱 목록에 Harbor를 넣어 실제 로그인 왕복을 계속 확인한다. `start`는 `https://<Harbor 주소>/accounts/rosy/`, `session`은 `https://<Harbor 주소>/accounts/rosy/session/`이다. 점검 계정에는 `harbor.view`가 있어야 한다.
 
-설치 상태(2026-11-14 읽기 전용 점검): R 호스트의 Harbor에는 `HARBOR_ROSY_ACCOUNT_FILE`이 없고 설정 폴더에도 해당 파일이 없으며, Account 등록부에 Harbor client도 없다. 즉 이 로그인은 아직 설치되지 않았다. Harbor 컨테이너에서 Account issuer의 `/api/fleet/auth/keys`에는 닿는다.
+설치 상태(2026-11-14): 아직 켜지 않았다. 준비된 것은 세 가지다. Harbor 화면 인증서를 공인 인증서로 바꿨고(매일 갱신 확인), 설정 폴더에 `rosy-account.json`을 두었고, Account 설정의 client 목록에 `harbor`를 넣었다(Account가 다시 뜰 때 적용). 남은 것은 Harbor 권한(`harbor.*`)을 아는 Account 판으로 R을 갱신하는 일, 팀원에게 권한을 주는 일(4번), 3번의 env 한 줄이다. 현장 R의 Account는 아직 `harbor.*` 권한을 모르는 판이라 그 전에 3번을 하면 로그인이 거절된다. Harbor 컨테이너에서 Account issuer의 `/api/fleet/auth/keys`에는 닿는다.
 
 ## 백업
 

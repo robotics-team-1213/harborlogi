@@ -57,3 +57,25 @@ class TransportHttpTests(unittest.TestCase):
             self.assertIsNotNone(job['steps'][0]['attempt_id'])
             self.assertEqual(restarted.read(intent.request_key)['state'], 'ACKNOWLEDGED')
             self.assertFalse({'recipe_digest', 'cell_digest', 'process_artifact_digest'} & job.keys())
+
+    def test_connection_rules_against_the_real_fleet(self):
+        """docs/platform-contract.md 연결 규약 3·4·8·9·10 on a real Fleet: identity, coded errors, port-events probe."""
+        config = json.loads(Path(os.environ['HARBOR_INTEGRATION_CONFIG']).read_text(encoding='utf-8'))
+        client = RosyClient(config['origin'], config['operator'])
+        session = client.session()
+        self.assertTrue({'principal_id', 'role'} <= session.keys())
+        with self.assertRaises(HTTPError) as refused:
+            RosyClient(config['origin'], 'not-a-token').session()
+        self.assertEqual(refused.exception.code, 401)
+        with self.assertRaises(HTTPError) as unknown:
+            client.trip_request('harbor-probe-' + uuid4().hex)
+        self.assertEqual(unknown.exception.code, 404)
+        with self.assertRaises(HTTPError) as probe:
+            client.port_events(after='harbor-probe-' + uuid4().hex, limit=1)
+        status, body = probe.exception.code, json.loads(probe.exception.read())
+        if status == 404:  # a platform older than ROSY D-996 has no such route
+            self.assertNotIsInstance(body.get('detail'), dict)
+            return
+        self.assertEqual((status, body), (400, {'detail': {'code': 'PORT_EVENT_CURSOR_INVALID'}}))
+        page = client.port_events(limit=1)
+        self.assertEqual(set(page), {'events', 'cursor', 'complete'})

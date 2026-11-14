@@ -42,8 +42,8 @@ class FleetConnectionTests(TransactionTestCase):
                          io.BytesIO(json.dumps({'detail': {'code': code}}).encode()))
 
     def rest(self, code=None):
-        # evidence, recheck, proposal, execution-profile probes; a generic 404 means the route is absent
-        return [self.missing(code) for _ in range(4)]
+        # evidence, recheck, proposal, port-events, execution-profile probes; a generic 404 means the route is absent
+        return [self.missing(code) for _ in range(5)]
 
     def test_saved_connection_feeds_existing_execution_and_contains_no_token(self):
         self.save()
@@ -85,7 +85,21 @@ class FleetConnectionTests(TransactionTestCase):
                     result = bridge.check_connection(self.admin, expected_version=1)
                 self.assertEqual(result['reason'], expected)
                 self.assertNotEqual(result['status'], 'VERIFIED')
-                self.assertEqual(http.call_count, 6 if error else 1)
+                self.assertEqual(http.call_count, 7 if error else 1)
+
+    def test_port_events_condition_shows_an_r_without_the_route(self):
+        self.save()
+        session, arm = {'principal_id': 'harbor-service', 'role': 'service'}, self.missing()
+        for answer, expected in [(self.missing('PORT_EVENT_CURSOR_INVALID', 400), 'MET'),
+                                 (self.missing(None), 'UNMET'),  # old R: no such route
+                                 (self.missing('PORT_EVENT_CURSOR_INVALID'), 'UNKNOWN'),
+                                 ({'events': [], 'cursor': 'c', 'complete': True}, 'UNKNOWN')]:
+            with self.subTest(expected=expected), patch('harbor.rosy_http.RosyClient._http', side_effect=[
+                    session, arm, *self.rest()[:3], answer, self.missing(None)]):
+                result = bridge.check_connection(self.admin, expected_version=1)
+            self.assertEqual(result['conditions']['port_events'], expected)
+        with self.assertRaises(ValidationError):
+            self.save(principal='p' * 97, expected_version=1)  # ROSY refuses principal ids over 96
 
     def test_get_is_read_only_and_only_admin_can_change_or_probe(self):
         self.save()

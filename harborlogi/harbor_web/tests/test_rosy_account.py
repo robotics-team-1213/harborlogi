@@ -64,6 +64,13 @@ class RosyAccountTests(TestCase):
         self.assertEqual(query['redirect_uri'], [CONFIG['callback']])
         return self.client.get('/accounts/rosy/callback/', {'state': query['state'][0], 'code': 'c1'})
 
+    def test_the_session_proof_names_only_a_rosy_sign_in(self):
+        self.assertEqual(self.client.get('/accounts/rosy/session/').json(), {'authenticated': False})
+        self.sign_in()
+        response = self.client.get('/accounts/rosy/session/')
+        self.assertEqual(response.json(), {'authenticated': True, 'account_id': 'acct-1'})
+        self.assertIn('no-store', response['Cache-Control'])  # set for every page by the security middleware
+
     def test_capabilities_become_harbor_groups(self):
         self.hub.capabilities = ['harbor.view', 'harbor.field', 'fleet.read']
         response = self.sign_in()
@@ -143,3 +150,4 @@ class ConfigTests(TestCase):
     def test_without_a_receiver_file_only_local_login_exists(self):
         self.assertEqual(self.client.get('/accounts/rosy/').status_code, 404)
         self.assertEqual(self.client.get('/accounts/rosy/callback/').status_code, 404)
+        self.assertEqual(self.client.get('/accounts/rosy/session/').status_code, 404)

@@ -61,7 +61,7 @@ def save_connection(actor, *, origin, principal, arm_console_enabled, expected_v
     origin = origin.rstrip('/')
     if origin not in allowed_origins():
         raise ValidationError('ORIGIN_NOT_ALLOWED')
-    if not isinstance(principal, str) or not principal.strip() or len(principal) > 192 or any(ord(c) < 32 for c in principal):
+    if not isinstance(principal, str) or not principal.strip() or len(principal) > 96 or any(ord(c) < 32 for c in principal):
         raise ValidationError('INVALID_FLEET_PRINCIPAL')
     if Command.objects.exists() and (origin, principal) != (config['origin'], config['principal']):
         raise ValidationError('EXISTING_EXECUTION_IDENTITY_LOCKED')
@@ -105,13 +105,13 @@ def _error_code(error):
         return status, None
 
 
-def _probe(read, found_code):
+def _probe(read, found_code, found_status=404):
     """MET: Fleet answers a key that cannot exist with its own coded 404. UNMET: route absent or not installed (generic 404, 503)."""
     try:
         read()
     except HTTPError as error:
         status, code = _error_code(error)
-        return ('MET' if (status, code) == (404, found_code) else
+        return ('MET' if (status, code) == (found_status, found_code) else
                 'UNMET' if status == 503 or status == 404 and code is None else 'UNKNOWN')
     except (URLError, TimeoutError, OSError, ValueError, TypeError, AttributeError):
         return 'UNKNOWN'
@@ -145,6 +145,8 @@ def probe_conditions(client, result):
         evidence=_probe(lambda: client.physical_evidence(mission), 'ARM_TRANSFER_JOB_NOT_FOUND'),
         recheck=_probe(lambda: client.recheck_read(mission, key), 'ARM_TRANSFER_JOB_NOT_FOUND'),
         proposal=_probe(lambda: client.trip_proposal_request(key), 'TRIP_PROPOSAL_NOT_FOUND'),
+        # A cursor Harbor invented is refused with a coded 400 only where the route is installed; a real page would be 200.
+        port_events=_probe(lambda: client.port_events(after=key, limit=1), 'PORT_EVENT_CURSOR_INVALID', 400),
         **dict(zip(('arm_live', 'auto_producer'), _platform_signal(client))))
 
 
