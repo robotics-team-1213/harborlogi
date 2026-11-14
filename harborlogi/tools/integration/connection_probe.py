@@ -33,9 +33,14 @@ def answer(read):
     except HTTPError as error:
         detail = json.loads(error.read(4096) or b'{}').get('detail')
         return error.code, detail.get('code') if isinstance(detail, dict) else None
+    except OSError:
+        return 0, None  # 연결 자체가 실패(timeout·거부): 어떤 규칙 비교와도 어긋나 FAIL이 됨
     return 200, None
 
 
+missing = [name for name in ('HARBOR_FLEET_ORIGIN', 'HARBOR_FLEET_TOKEN', 'HARBOR_FLEET_PRINCIPAL') if name not in os.environ]
+if missing:
+    sys.exit('필수 환경변수 누락: ' + ', '.join(missing))
 origin, token = os.environ['HARBOR_FLEET_ORIGIN'], os.environ['HARBOR_FLEET_TOKEN']
 parts = urlsplit(origin)
 report(1, parts.scheme == 'https', f'Fleet origin scheme {parts.scheme}')
