@@ -28,6 +28,20 @@ def ensure_persona_accounts(saved):
     return accounts
 
 
+def ensure_field_episode(actor, inbound):
+    """Make the synthetic inbound episode belong to the field persona; no-op when it already does."""
+    from django.contrib.auth import get_user_model
+    from harbor_web import services
+    from harbor_web.models import FieldEpisode
+    field = get_user_model().objects.get(username=PERSONA_ACCOUNTS['field'])
+    episode = FieldEpisode.objects.filter(order=inbound, state='OPEN').order_by('-pk').first()
+    if episode is None:
+        return services.assign_episode(actor, order_id=inbound.pk, vehicle_id='합성 차량 P1', assigned_to=field)
+    if episode.assigned_to_id != field.pk:
+        return services.reassign_episode(actor, episode_id=episode.pk, expected_version=episode.version, assigned_to=field)
+    return episode
+
+
 def _write_access(path, values):
     """Replace the private access file atomically, keeping mode 0600."""
     descriptor, temporary = tempfile.mkstemp(dir=path.parent, prefix='.access-')
@@ -68,7 +82,7 @@ def main():
     from django.contrib.auth.models import Group
     from django.utils import timezone
     from harbor_web import services
-    from harbor_web.models import Cargo, CargoFootprint, Condition, FieldEpisode, Order
+    from harbor_web.models import Cargo, CargoFootprint, Condition, Order
     from harbor.ownership import WriterLease
     with WriterLease(folder / 'product.sqlite3'):
         call_command('migrate', interactive=False, verbosity=0)
@@ -117,9 +131,7 @@ def main():
         inbound = Order.objects.filter(cargo__code='C3', kind='INBOUND').first()
         if inbound is None:
             inbound = services.create_order(user, cargo=Cargo.objects.get(code='C3'), kind='INBOUND', priority_group=3, sequence=1, tie_policy='FIXED', note='현장 확인 화면 검토용 합성 요청')
-        if not FieldEpisode.objects.filter(order=inbound, state='OPEN').exists():
-            services.assign_episode(user, order_id=inbound.pk, vehicle_id='합성 차량 P1',
-                                    assigned_to=get_user_model().objects.get(username=PERSONA_ACCOUNTS['field']))
+        ensure_field_episode(user, inbound)
     print('Product preview: http://127.0.0.1:8060/ · synthetic data; Fleet disconnected.', flush=True)
     print('Persona accounts: ' + ', '.join(PERSONA_ACCOUNTS.values()) + ' (passwords only in the access file).', flush=True)
     print('Private access file: runs/product-preview/access.json (do not publish).', flush=True)
