@@ -1,4 +1,4 @@
-import {mountLinkedGrid, selectionFor, atPosition, slotLabel} from './yard-selection.mjs';
+import {mountLinkedGrid, selectionFor, atPosition, slotLabel, topBoxes} from './yard-selection.mjs';
 import {cloneBoxes, transit, moveBox, placementFromWorld} from './yard-model.mjs';
 import {DraftSession} from './yard-draft.mjs';
 
@@ -54,6 +54,17 @@ export async function mountYardViewer(figure) {
   let selected = '', current = cloneBoxes(scene.frames[index].boxes), draft = null;
   let playing = false, internalStep = false, isolated = false, timer = 0, raf = 0, animation = null;
   let destroyed = false, draftHistory = [], replayIndex = 0, session = null;
+  const slotCells = scene.slot_cells || 0;  // a site with fixed 1×3 slots (KAN-115) names slots, not cells
+  const place = box => slotCells ? slotLabel(scene.areas, box, slotCells) : box.positions.join(' / ');
+  // A stored plan replays as 계획 재생. Without one only local moves can replay, so the button stays in view,
+  // disabled until a virtual move exists, instead of disappearing (an observation-only page had no replay at all).
+  const planReplay = scene.frames.length > 1 && controls.length === scene.frames.length;
+  function playIdle() {
+    play.hidden = scene.kind === 'map-definition';
+    play.disabled = draft ? draftHistory.length < 2 : !planReplay;
+    play.textContent = draft || !planReplay ? '가상 변경 재생' : '계획 재생';
+    play.setAttribute('aria-pressed', 'false');
+  }
   const ceiling = Math.max(...scene.areas.map(a => a.levels)) + .6;
   let renderer = null;
   renderer = createRenderer(canvas, scene.areas, {
@@ -66,7 +77,6 @@ export async function mountYardViewer(figure) {
       else { error.textContent = '구역 안의 격자 위치로 옮겨주세요.'; renderer.setBoxes(draft); }
     }, onError: () => { destroy(); fallback(figure); },
   });
-  const slotCells = scene.slot_cells || 0;  // a site with fixed 1×3 slots (KAN-115) names slots, not cells
   function stop() {
     if (draft && animation) {
       progress.dataset.phase = '중지 · 최종 가상 배치'; progress.dataset.progress = '100';
@@ -74,7 +84,7 @@ export async function mountYardViewer(figure) {
     }
     playing = false; clearTimeout(timer); cancelAnimationFrame(raf); raf = 0; animation = null;
     canvas.dataset.moving = 'false';
-    play.textContent = draft ? '가상 변경 재생' : '계획 재생'; play.setAttribute('aria-pressed', 'false');
+    playIdle();
     editButton.disabled = scene.kind === 'map-definition';
     if (draft && !destroyed) { renderer?.setEditable(true); editor.querySelector('fieldset').disabled = !selected; paint(draft); }
     updateDraftState();
@@ -98,12 +108,12 @@ export async function mountYardViewer(figure) {
     changes.replaceChildren();
     for (const {before,after} of session?.changes || []) {
       const item = document.createElement('li');
-      item.textContent = `${after.id} · ${before.positions.join(' / ')} → ${after.positions.join(' / ')}`;
+      item.textContent = `${after.id} · ${place(before)} → ${place(after)}`;
       changes.append(item);
     }
     editTools.querySelector('[data-scene-edit-help]').textContent = draft ?
-      `${selected || '화물 미선택'} · 화물을 고른 뒤 평면의 ‘여기로 이동’ 칸을 누르세요. 이동 불가 칸을 누르면 이유를 확인합니다.` :
-      '화물을 선택하고 가상 배치 편집을 시작하세요. 저장된 계획 결과도 불러와 수정할 수 있습니다.';
+      `${selected || '화물 미선택'} · 평면에서 ${slotCells ? '자리의 ‘놓기’를' : '‘여기로 이동’ 칸을'} 누르세요. 놓을 수 없는 곳을 누르면 이유가 나옵니다. 옮긴 뒤 ‘가상 변경 재생’으로 이동을 다시 봅니다.` :
+      `화물을 선택하고 가상 배치 편집을 시작하세요. 옮긴 뒤 ‘가상 변경 재생’으로 이동을 볼 수 있습니다.${planReplay ? ' 저장된 계획 결과도 불러와 수정할 수 있습니다.' : ''}`;
   }
   const selection = () => selectionFor(boxes().find(b => b.id === selected)) || location;
   const mode = () => scene.kind === 'map-definition' ? 'map-definition' : draft ? 'local-draft' : index ? 'predicted' : 'original';
@@ -153,18 +163,15 @@ export async function mountYardViewer(figure) {
     error.textContent = result.valid ? '' : result.reason;
     if (result.valid) {
       draftHistory = session.frames;
-      play.disabled = draftHistory.length < 2;
-      draft = cloneBoxes(session.boxes); status(id + ' 가상 위치 변경 · 논리 점유·지지 검사 통과');
+      draft = cloneBoxes(session.boxes); playIdle(); status(id + ' 가상 위치 변경 · 논리 점유·지지 검사 통과');
     }
     paint(draft);
     if (result.valid) select(id); else details();
-    linked?.feedback(result.valid ? `${id} 이동 완료 · ${draft.find(box=>box.id===id).positions.join(' / ')} · 되돌리기로 복원할 수 있습니다.` : result.reason);
+    linked?.feedback(result.valid ? `${id} 이동 완료 · ${place(draft.find(box=>box.id===id))} · 되돌리기로 복원할 수 있습니다.` : result.reason);
   }
   function lockDraft(value) {
     controls.forEach(button => { button.disabled = value; });
-    play.disabled = value && draftHistory.length < 2;
-    play.hidden = scene.kind === 'map-definition' || (!value && scene.frames.length < 2);
-    play.textContent = value ? '가상 변경 재생' : '계획 재생';
+    playIdle();
     editButton.setAttribute('aria-pressed', String(value));
     editButton.textContent = value ? '원본 복원·편집 끝내기' : '가상 배치 편집';
     editor.hidden = !value; renderer.setEditable(value);
@@ -182,7 +189,9 @@ export async function mountYardViewer(figure) {
         if (!result.valid) { error.textContent = result.reason; return; }
       }
       session = next; draft = cloneBoxes(session.boxes); draftHistory = session.frames; lockDraft(true); paint(draft);
-      selected ||= draft.find(box=>box.role==='target')?.id || draft[0]?.id || '';
+      // Start on cargo a move can lift: a buried one only shows '놓을 수 없음' everywhere.
+      const free = topBoxes(draft);
+      if (!free.some(box => box.id === selected)) selected = (free.find(box => box.role === 'target') || free[0])?.id || '';
       status(usePlan ? '저장된 이동 순서와 결과를 불러왔습니다. 되돌리거나 이어서 편집하세요.' : '목적 칸 클릭·3D 이동 핸들·좌표 입력으로 배치하세요.');
     }
     error.textContent = ''; fillCargo(); select(selected);
@@ -203,7 +212,7 @@ export async function mountYardViewer(figure) {
   }
   function describeMove(segment, t) {
     const {from, to} = segment;
-    const location = box => box.area + ' ' + box.row + '행 ' + box.column + '열 ' + box.level + '층';
+    const location = box => slotCells ? slotLabel(scene.areas, box, slotCells) : box.area + ' ' + box.row + '행 ' + box.column + '열 ' + box.level + '층';
     const phase = !from ? '배치 비교 · 관측 출발 위치 없음' : segment.instant ? '방향 비교 · 즉시 전환' : t < .25 ? '들어 올림' : t < .75 ? '이동' : t < 1 ? '내려놓기' : '완료';
     Object.assign(progress.dataset, {cargo:to.id, source:from ? location(from) : '관측 출발 위치 없음',
       destination:location(to), phase, progress:String(Math.round(t * 100)), mode:draft ? 'local-draft' : 'plan'});
@@ -253,7 +262,7 @@ export async function mountYardViewer(figure) {
       describeMove(next, 0); raf = requestAnimationFrame(tick);
     } else {
       paint(animation.target); animation = null; canvas.dataset.moving = 'false';
-      if (!playing) { play.textContent = draft ? '가상 변경 재생' : '계획 재생'; play.setAttribute('aria-pressed', 'false'); }
+      if (!playing) playIdle();
       status(draft ? '로컬 가상 변경 · 서버에 저장되지 않음' : scene.frames[index].label + ' · 예상 배치'); advance();
     }
   }
@@ -317,7 +326,7 @@ export async function mountYardViewer(figure) {
   for (const [button,action] of [[undo,'undo'],[redo,'redo']]) on(button,'click',()=>{
     if (!session || playing) return;
     stop(); session[action](); draft = cloneBoxes(session.boxes); draftHistory = session.frames;
-    play.disabled = draftHistory.length < 2; error.textContent = '';
+    playIdle(); error.textContent = '';
     paint(draft); select(selected); status(action === 'undo' ? '직전 이동을 되돌렸습니다.' : '이동을 다시 적용했습니다.');
   });
   on(play, 'click', () => {
@@ -362,7 +371,7 @@ export async function mountYardViewer(figure) {
     destroyed = true; stop(); cancelAnimationFrame(raf); events.abort();
     controls.forEach(button => { button.disabled = false; }); renderer?.dispose();
   }
-  play.hidden = scene.frames.length < 2 || controls.length !== scene.frames.length;
+  playIdle();
   if (scene.kind === 'map-definition') {
     figure.classList.add('map-definition');
     figure.querySelector('.model-inspector').hidden = true;

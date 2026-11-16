@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {selectionFor, atPosition, slotLabel, slotStacks} from '../harbor_web/static/harbor_web/yard-selection.mjs';
+import {selectionFor, atPosition, slotLabel, slotStacks, topBoxes} from '../harbor_web/static/harbor_web/yard-selection.mjs';
 
 const boxes = [{id:'wide', area:'yard', row:2, column:1, level:3, orientation:0, width:3, depth:1},
   {id:'rotated', area:'temp', row:1, column:2, level:1, orientation:90, width:1, depth:2}];
@@ -34,3 +34,11 @@ assert.equal(slotLabel(areas, {area:'temp_a', row:2, column:1, level:1}, 3), '�
 assert.equal(slotLabel(areas, {area:'stand', row:1, column:1, level:1}, 3), '반출대');
 assert.equal(slotLabel(areas, null, 3), '');
 console.log('Slot site: slots per row, levels at once, partial slots and place names passed');
+
+// Editing starts on cargo a move can lift: nothing may rest on it, in its own area only.
+const stack = [{id:'C1', area:'yard', row:1, column:1, level:1, width:3, depth:1}, {id:'C2', area:'yard', row:1, column:1, level:2, width:3, depth:1},
+  {id:'C4', area:'yard', row:1, column:4, level:1, width:3, depth:1}, {id:'N1', area:'yard', row:2, column:2, level:2, width:1, depth:1},
+  {id:'U1', area:'yard', row:2, column:1, level:1, width:3, depth:1}, {id:'T1', area:'temp_a', row:1, column:1, level:2, width:3, depth:1}];
+assert.deepEqual(topBoxes(stack).map(box => box.id), ['C2', 'C4', 'N1', 'T1']);  // C1 under C2, U1 under N1 (partial cover)
+assert.deepEqual(topBoxes([]), []);
+console.log('Top cargo: covered stacks, partial covers and other areas passed');
