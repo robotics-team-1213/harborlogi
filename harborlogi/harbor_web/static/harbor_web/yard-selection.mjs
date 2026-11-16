@@ -15,6 +15,14 @@ export function atPosition(boxes, position) {
     position.column >= box.column && position.column < box.column + box.width);
 }
 
+/** Cargo with nothing resting on it, in sheet order: the only cargo a move can lift without leaving a box unsupported. */
+export function topBoxes(boxes) {
+  const covers = (upper, box) => upper !== box && upper.area === box.area && upper.level === box.level + 1 &&
+    upper.row < box.row + box.depth && box.row < upper.row + upper.depth &&
+    upper.column < box.column + box.width && box.column < upper.column + upper.width;
+  return boxes.filter(box => !boxes.some(upper => covers(upper, box)));
+}
+
 export const OCCUPANCY_CAP = 3; // Same cap as yard_occupancy.STEP_CAP: step 3 means three or more levels.
 
 /** Per-column stack height of one area: the highest level of any cargo covering the column (multi-cell cargo = one box). */
