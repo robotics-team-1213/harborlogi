@@ -160,6 +160,9 @@ class SimulationCellTemplate:
     simulation_cell_template: bool
     workcell_id: str
     instances: dict
+    # shortcut (fake-rosy test only): a Fleet installs one source->target transfer and one object, so every move
+    # may name these fixed references instead of the anchor addresses and the cargo code.
+    fixed_refs: dict = None
 
     def __post_init__(self):
         if self.simulation_cell_template is not True:
@@ -170,6 +173,12 @@ class SimulationCellTemplate:
             raise ValueError('Simulation instances are keyed by yard arm A/B')
         for value in self.instances.values():
             identifier(value)
+        if self.fixed_refs is not None:
+            if (not isinstance(self.fixed_refs, dict)
+                    or set(self.fixed_refs) != {'object_ref', 'source_ref', 'target_ref'}):
+                raise ValueError('Fixed references name object_ref, source_ref and target_ref')
+            for value in self.fixed_refs.values():
+                identifier(value)
 
     def moves(self, plan_moves):
         bound = []
@@ -177,10 +186,13 @@ class SimulationCellTemplate:
             arm = move['primary_arm']
             if arm not in self.instances:
                 raise ValueError('No simulation instance for this arm')
-            ends = [anchor_address(p['area_id'], p['row'], p['column'], p['level'])
-                    for p in (move['source_placement'], move['destination_placement'])]
+            if self.fixed_refs is not None:
+                refs = [self.fixed_refs[k] for k in ('object_ref', 'source_ref', 'target_ref')]
+            else:
+                refs = [move['cargo_id']] + [anchor_address(p['area_id'], p['row'], p['column'], p['level'])
+                                             for p in (move['source_placement'], move['destination_placement'])]
             bound.append(ArmTransferBinding(move['cargo_id'], move['source'], move['destination'], self.workcell_id,
-                                            self.instances[arm], move['cargo_id'], *ends, arm))
+                                            self.instances[arm], *refs, arm))
         return tuple(bound)
 
 

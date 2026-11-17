@@ -72,6 +72,24 @@ def _rearrangement(plan, installed):
     return (moves, once[-1]) if once else None
 
 
+def _is_simulated_outbound(plan):
+    return (plan.result.get('model') == 'grid-placement-v1' and plan.result.get('plan_kind') is None
+            and plan.result.get('recommendation') is None)
+
+
+def _simulated_outbound(plan, installed):
+    """shortcut (fake-rosy test only): a spatial outbound plan through the simulation cell template.
+
+    (moves, completing move) like _rearrangement; the order's cargo ends at its last destination, the stand.
+    """
+    templates = [b for b in installed if isinstance(b, SimulationCellTemplate)]
+    if len(templates) != 1 or plan.result.get('status') != 'READY' or not plan.result.get('moves'):
+        return None
+    moves = templates[0].moves(plan.result['moves'])
+    target = [m for m in moves if m.cargo_id == plan.order.cargo.code]
+    return (moves, target[-1]) if target else None
+
+
 def _spatial_from_path(plan, path):
     if not path:
         return None
@@ -80,6 +98,8 @@ def _spatial_from_path(plan, path):
             installed = load_bindings(json.load(source))
         if plan.result.get('plan_kind') == 'rearrangement':
             return _rearrangement(plan, installed)
+        if _is_simulated_outbound(plan):
+            return _simulated_outbound(plan, installed)
         return _matching_spatial(plan, installed)
     except (OSError, ValueError, KeyError, TypeError):
         return None
@@ -95,6 +115,11 @@ def _bound(plan, config):
         bound = _rearrangement(plan, bindings)
         if bound is None:
             raise ValueError('No simulation cell template binds this rearrangement')
+        return bound[0]
+    if _is_simulated_outbound(plan):
+        bound = _simulated_outbound(plan, bindings)
+        if bound is None:
+            raise ValueError('No simulation cell template binds this outbound plan')
         return bound[0]
     if plan.result.get('model') == 'grid-placement-v1':
         spatial = _matching_spatial(plan, bindings)

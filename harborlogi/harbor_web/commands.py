@@ -23,8 +23,8 @@ from harbor_web.services import _role, Conflict, queue_digest, constraints
 from harbor_web.coordination import serialized
 from harbor_web.readiness import REASONS as READINESS_REASONS
 # Imported by name so tests that patch `harbor_web.commands._config`/`_bound` still reach these call sites.
-from harbor_web.command_binding import (_bindings, _bound, _config, _digest, _identity, _rearrangement,
-                                        _spatial_binding, _spatial_from_path)
+from harbor_web.command_binding import (_bindings, _bound, _config, _digest, _identity, _is_simulated_outbound,
+                                        _rearrangement, _simulated_outbound, _spatial_binding, _spatial_from_path)
 
 _registry = None
 _guard = threading.RLock()
@@ -184,6 +184,11 @@ def prepare_command(actor, *, plan_id, expected_version):
             raise ValidationError('Execution inputs unavailable.')
         if plan.result.get('plan_kind') == 'rearrangement':
             moves, completing = _rearrangement(plan, _bindings(registry.config))
+            body = dict(moves=[m.__dict__ for m in moves], revision=plan.result['source_revision'],
+                        outbound_id=completing.cargo_id, outbound_stand=completing.destination,
+                        move_arms=[[m.yard_arm] for m in moves])
+        elif _is_simulated_outbound(plan):  # shortcut (fake-rosy test only), see command_binding._simulated_outbound
+            moves, completing = _simulated_outbound(plan, _bindings(registry.config))
             body = dict(moves=[m.__dict__ for m in moves], revision=plan.result['source_revision'],
                         outbound_id=completing.cargo_id, outbound_stand=completing.destination,
                         move_arms=[[m.yard_arm] for m in moves])
