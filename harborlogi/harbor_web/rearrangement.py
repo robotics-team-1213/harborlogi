@@ -9,11 +9,14 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
-from harbor_web import commands, services
+from harbor_web import commands
 from harbor_web.command_models import ACTIVE_COMMAND_STATES
 from harbor_web.coordination import serialized
 from harbor_web.models import Audit, CargoFootprint, Command, Observation, Order, Plan, RearrangeAuthorization
-from harbor_web.order_queue import open_outbound_orders
+from harbor_web.order_queue import open_outbound_orders, queue_digest
+# Re-bound here so tests and callers keep patching/reading `rearrangement.rearrange_proposal`.
+from harbor_web.plan_service import _calculate_plan, plan_record, rearrange_proposal  # noqa: F401
+from harbor_web.service_common import Conflict, _role
 
 DEFAULT_VALID_FOR = timezone.timedelta(hours=8)
 HOLD_ACTION = 'rearrange.hold'
@@ -36,27 +39,6 @@ def pending_inbound_lengths():
     return tuple(lengths)
 
 
-def rearrange_proposal(observation, options, *, now):
-    from harbor.spatial import plan_rearrangement
-    if options.get('proposal') is not None:
-        return options['proposal']
-    snapshot = services.spatial_snapshot(observation)
-    return services._domain(lambda: plan_rearrangement(
-        snapshot, services.spatial_policy(observation.condition.payload), services._outbound_schedule(),
-        now=now, expected_revision=snapshot.revision, k=options['k'], max_moves=options['max_moves'],
-        outbound_pending=options['outbound_pending'], requested=options['requested'],
-        pending_inbound=options['pending_inbound']))
-
-
-def plan_record(proposal, options):
-    """Per-plan record: which authorization, B/N before and after, gain, move count."""
-    score = proposal.optimization.score if proposal.optimization else None
-    return dict(authorization_id=options.get('authorization_id'), automatic=bool(options.get('automatic')),
-        blocked_before=score and score.blocked_pairs_before, blocked_after=score and score.blocked_pairs,
-        unknown_before=score and score.unknown_pairs_before, unknown_after=score and score.unknown_pairs,
-        gain=score and score.gain, move_count=len(proposal.moves))
-
-
 def _options(**values):
     return dict(dict(requested=False, outbound_pending=outbound_pending(), pending_inbound=pending_inbound_lengths()), **values)
 
@@ -77,7 +59,7 @@ def _switch_off(actor, now):
 @serialized
 @transaction.atomic
 def enable_authorization(actor, *, k=2, max_moves=6, valid_until=None, daily_limit=20, now=None):
-    services._role(actor, 'operator')  # Same permission that confirms execution (prepare_command).
+    _role(actor, 'operator')  # Same permission that confirms execution (prepare_command).
     now = timezone.now() if now is None else now
     valid_until = now + DEFAULT_VALID_FOR if valid_until is None else valid_until
     if valid_until <= now:
@@ -95,7 +77,7 @@ def enable_authorization(actor, *, k=2, max_moves=6, valid_until=None, daily_lim
 @serialized
 @transaction.atomic
 def disable_authorization(actor, *, now=None):
-    services._role(actor, 'operator')
+    _role(actor, 'operator')
     _switch_off(actor, timezone.now() if now is None else now)
 
 
@@ -103,10 +85,10 @@ def disable_authorization(actor, *, now=None):
 @transaction.atomic
 def request_rearrangement(actor, *, observation_id, k=2, max_moves=6, now=None):
     """Manual R2: allows F-only plans, never executes without the normal user confirmation."""
-    services._role(actor, 'operator')
+    _role(actor, 'operator')
     observation = Observation.objects.select_related('condition').get(pk=observation_id)
     order = Order.objects.create(created_by=actor, kind='REARRANGE')
-    return services._calculate_plan(actor, order, observation, now=now, trigger='rearrange.request',
+    return _calculate_plan(actor, order, observation, now=now, trigger='rearrange.request',
         rearrange=_options(k=k, max_moves=max_moves, requested=True, automatic=False))
 
 
@@ -144,7 +126,7 @@ def auto_check(now=None):
     if observation is None or observation.payload.get('schema') != 'grid-placement-v1':
         return _hold_with(auth, 'SPATIAL_OBSERVATION_REQUIRED')
     last = Plan.objects.filter(order__kind='REARRANGE').order_by('-pk').first()
-    if last and last.observation_id == observation.pk and last.queue_digest == services.queue_digest():
+    if last and last.observation_id == observation.pk and last.queue_digest == queue_digest():
         return 'ALREADY_PLANNED'  # One automatic try per observation and queue state.
     options = _options(k=auth.k, max_moves=auth.max_moves, automatic=True, authorization_id=auth.pk)
     try:
@@ -164,7 +146,7 @@ def _hold_with(auth, reason):
 @transaction.atomic
 def _create_plan(auth, observation, options, now):
     order = Order.objects.create(created_by=auth.created_by, kind='REARRANGE')
-    return services._calculate_plan(auth.created_by, order, observation, now=now, trigger='rearrange.auto', rearrange=options)
+    return _calculate_plan(auth.created_by, order, observation, now=now, trigger='rearrange.auto', rearrange=options)
 
 
 def _execute(auth, observation, options, now):
@@ -178,5 +160,5 @@ def _execute(auth, observation, options, now):
     try:
         command = commands.prepare_command(auth.created_by, plan_id=plan.pk, expected_version=plan.order_version)
         return commands.submit_command(auth.created_by, command_id=command.pk, expected_version=command.version)
-    except (ValidationError, services.Conflict, PermissionDenied):
+    except (ValidationError, Conflict, PermissionDenied):
         return _hold_with(auth, 'EXECUTION_INPUTS_UNAVAILABLE')
