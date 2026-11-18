@@ -128,6 +128,14 @@ def discover_connections(actor, *, expected_version):
     return result
 
 
+_connection_saved = set()
+
+
+def on_connection_saved(callback):
+    """Let the execution layer drop what it built from the old connection, without this module importing it."""
+    _connection_saved.add(callback)
+
+
 @serialized
 def save_connection(actor, *, origin, principal, arm_console_enabled, expected_version):
     _role(actor, 'admin')
@@ -143,13 +151,13 @@ def save_connection(actor, *, origin, principal, arm_console_enabled, expected_v
         raise ValidationError('INVALID_FLEET_PRINCIPAL')
     if Command.objects.exists() and (origin, principal) != (config['origin'], config['principal']):
         raise ValidationError('EXISTING_EXECUTION_IDENTITY_LOCKED')
-    from harbor_web.commands import registry_close
     with transaction.atomic():
         profile, _ = FleetConnection.objects.update_or_create(pk=1, defaults=dict(origin=origin, principal=principal,
             arm_console_enabled=arm_console_enabled, version=config['version'] + 1))
         Audit.objects.create(actor=actor, action='fleet.configure', object_type='FleetConnection', object_id='1',
             detail=dict(version=profile.version, source='web'))
-    registry_close()
+    for close in tuple(_connection_saved):
+        close()
     return profile
 
 

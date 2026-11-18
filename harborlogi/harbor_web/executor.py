@@ -112,7 +112,7 @@ def _loop_evidence():
             providers.append(intake_provider())
         elif os.environ.get('HARBOR_EXECUTOR_EVIDENCE') == 'physical':
             from harbor_web.evidence import physical_provider
-            providers.append(physical_provider())
+            providers.append(physical_provider(lambda: commands.acquire_registry()))
         from harbor_web.human_evidence import human_provider
         providers.append(human_provider())  # Gated per call by the admin switch.
     except Exception:

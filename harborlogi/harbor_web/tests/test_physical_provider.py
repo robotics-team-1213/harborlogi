@@ -18,18 +18,21 @@ ENVIRONMENT = dict(HARBOR_EXECUTOR_EVIDENCE="physical", HARBOR_PLACEMENT_SOURCES
 class PhysicalProviderTests(SimpleTestCase):
     def test_loop_selects_the_explicit_physical_provider(self):
         found = object()
-        with patch.dict(os.environ, ENVIRONMENT), patch.object(evidence, "physical_provider", return_value=lambda *args: found):
+        with patch.dict(os.environ, ENVIRONMENT), patch.object(evidence, "physical_provider",
+                                                               return_value=lambda *args: found) as make:
             self.assertIs(executor._loop_evidence()(object(), {}, {}, "step"), found)
+        registry = object()
+        with patch("harbor_web.commands.acquire_registry", return_value=registry):
+            self.assertIs(make.call_args.args[0](), registry)  # the executor hands over the commands registry
 
     def test_provider_reads_only_current_step_and_never_manufactures_final_evidence(self):
         client, result = object(), object()
         row = dict(request_key="command-1", step_index=0, mission_id="mission-1", attempt_id="attempt-1",
                    state="WAITING", goal_confirmed=1)
         payload = dict(execution_kind="ARM_TRANSFER", revision=7, moves=[asdict(BINDING)])
-        with patch.dict(os.environ, ENVIRONMENT), patch("harbor_web.commands.acquire_registry",
-                return_value=SimpleNamespace(client=client)), patch("harbor.physical_evidence.fleet_move_evidence",
+        with patch.dict(os.environ, ENVIRONMENT), patch("harbor.physical_evidence.fleet_move_evidence",
                 return_value=result) as read:
-            provider = evidence.physical_provider()
+            provider = evidence.physical_provider(lambda: SimpleNamespace(client=client))
             self.assertIsNone(provider(object(), row, payload, "final"))
             read.assert_not_called()
             self.assertIs(provider(object(), row, payload, "step"), result)
@@ -40,4 +43,4 @@ class PhysicalProviderTests(SimpleTestCase):
         for changes in ({"HARBOR_RETREAT_SOURCES": ""},
                         {"HARBOR_PLACEMENT_SOURCES": "camera-1,camera-2"}):
             with self.subTest(changes=changes), patch.dict(os.environ, {**ENVIRONMENT, **changes}), self.assertRaises(ValueError):
-                evidence.physical_provider()
+                evidence.physical_provider(lambda: None)

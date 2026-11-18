@@ -16,13 +16,11 @@ from django.utils import timezone
 from harbor.ledger import ReadOnlyLedger, plan_payload
 from harbor.workflow import HumanArmRetreat, MoveEvidence, PlacementEvidence, RetreatEvidence
 from harbor_web import commands
-from harbor_web.command_models import Command, HumanAttestation
+from harbor_web.command_models import (FRESHNESS, HUMAN_PLACEMENT_SOURCE, HUMAN_RETREAT_SOURCE, Command,  # noqa: F401
+                                        HumanAttestation)
 from harbor_web.coordination import serialized
 from harbor_web.service_common import Conflict, _role, _save
 
-HUMAN_PLACEMENT_SOURCE = 'human-attested-placement'
-HUMAN_RETREAT_SOURCE = 'human-attested-retreat'
-FRESHNESS = timedelta(minutes=5)  # The ledger's human window.
 # Offer a record only while it has this much ledger window left: the ledger re-reads the clock, and a record
 # expiring between the two reads would turn a stale confirmation into an UNKNOWN reconciliation case.
 LEDGER_MARGIN = timedelta(seconds=30)
