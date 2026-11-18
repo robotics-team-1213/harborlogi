@@ -146,8 +146,15 @@ ALLOWED_CYCLE_EDGES = {
     # fleet_discovery, rosy_http
     ('harbor.fleet_discovery', 'harbor.rosy_http'),
     ('harbor.rosy_http', 'harbor.fleet_discovery'),
-    # autoplanning, command_binding, commands, evidence, fleet_connection, human_evidence, order_queue, plan_service, readiness, rearrangement, services
-    ('harbor_web.autoplanning', 'harbor_web.services'),
+    # autoplanning, order_queue, plan_service: permanent replan loop. Every order or plan mutation calls replan_enabled
+    # (order_queue/plan_service -> autoplanning), which recalculates through _calculate_plan and queue_digest
+    # (autoplanning -> plan_service/order_queue). Merging them would mix queue state with calculation.
+    ('harbor_web.autoplanning', 'harbor_web.order_queue'),
+    ('harbor_web.autoplanning', 'harbor_web.plan_service'),
+    ('harbor_web.order_queue', 'harbor_web.autoplanning'),
+    ('harbor_web.plan_service', 'harbor_web.autoplanning'),
+    ('harbor_web.plan_service', 'harbor_web.order_queue'),
+    # command_binding, commands, evidence, fleet_connection, human_evidence, readiness, rearrangement
     ('harbor_web.command_binding', 'harbor_web.evidence'),
     ('harbor_web.command_binding', 'harbor_web.fleet_connection'),
     ('harbor_web.commands', 'harbor_web.command_binding'),
@@ -156,24 +163,12 @@ ALLOWED_CYCLE_EDGES = {
     ('harbor_web.commands', 'harbor_web.human_evidence'),
     ('harbor_web.commands', 'harbor_web.readiness'),
     ('harbor_web.commands', 'harbor_web.rearrangement'),
-    ('harbor_web.commands', 'harbor_web.services'),
     ('harbor_web.evidence', 'harbor_web.commands'),
-    ('harbor_web.evidence', 'harbor_web.services'),
     ('harbor_web.fleet_connection', 'harbor_web.commands'),
-    ('harbor_web.fleet_connection', 'harbor_web.services'),
     ('harbor_web.human_evidence', 'harbor_web.commands'),
-    ('harbor_web.order_queue', 'harbor_web.autoplanning'),
-    ('harbor_web.plan_service', 'harbor_web.autoplanning'),
-    ('harbor_web.plan_service', 'harbor_web.order_queue'),
-    ('harbor_web.plan_service', 'harbor_web.rearrangement'),
     ('harbor_web.readiness', 'harbor_web.command_binding'),
     ('harbor_web.readiness', 'harbor_web.fleet_connection'),
     ('harbor_web.rearrangement', 'harbor_web.commands'),
-    ('harbor_web.rearrangement', 'harbor_web.order_queue'),
-    ('harbor_web.rearrangement', 'harbor_web.services'),
-    ('harbor_web.services', 'harbor_web.autoplanning'),
-    ('harbor_web.services', 'harbor_web.order_queue'),
-    ('harbor_web.services', 'harbor_web.plan_service'),
     # cargo_history, field_pages, inbound_decision, operations, order_timeline, placement_view, planning_pages, views, workspace
     ('harbor_web.cargo_history', 'harbor_web.workspace'),
     ('harbor_web.field_pages', 'harbor_web.views'),
