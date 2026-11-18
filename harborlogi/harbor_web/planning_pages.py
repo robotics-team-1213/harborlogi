@@ -13,47 +13,14 @@ from harbor.ledger import ReadOnlyLedger
 from harbor_web import commands, human_evidence, services
 from harbor_web.auth import has_role, require_roles
 from harbor_web.models import Command, Plan
-from harbor_web.pipeline import COMMAND_LABELS, pipeline_for
-from harbor_web.presentation import reason_text
-from harbor_web.views import page, paginate, selected_observation
+from harbor_web.pipeline import pipeline_for
+from harbor_web.presentation import COMMAND_LABELS, gate_text, reason_text
+from harbor_web.page_helpers import page, paginate, selected_observation
 
 
 class CommandForm(forms.Form):
     expected_version = forms.IntegerField(min_value=1, widget=forms.HiddenInput)
     reason = forms.CharField(label='취소 요청 사유', max_length=192, required=False)
-
-
-def gate_text(code):
-    return {
-        'SPATIAL_EXECUTION_BINDINGS_REQUIRED': '공간 계획의 전체 점유 크기·방향·위치에 맞는 설치 대응 검증이 필요합니다.',
-        'SPATIAL_OBSERVATION_REQUIRED': '다칸 화물이 등록되었습니다. 전체 점유 위치와 크기 원본을 포함한 공간 관측으로 다시 검토하세요.',
-        'EXISTING_ORDER_EXECUTION_REQUIRES_RECONCILIATION': '이 요청에는 이미 실행 인계가 있습니다. 새로 제출하지 말고 원래 작업을 대조하세요.',
-        'ORDER_ALREADY_COMPLETED': '업무 장부가 이 요청을 이미 완료했습니다. 같은 업무를 다시 실행하지 않습니다. 완료 기록을 확인하세요.',
-        'RESTORE_RECONCILIATION_REQUIRED': '복원한 자료입니다. 원래 실행과 복구 검토가 끝나기 전 새 제출을 보류합니다.',
-        'DEPLOYMENT_PROFILE_REQUIRED': '배포 환경과 데이터베이스 기준을 먼저 확인해야 합니다.',
-        'EXECUTION_CONFIGURATION_REQUIRED': 'ROSY 연동 설정과 설치된 이동 대응이 필요합니다.',
-        'ORIGIN_NOT_ALLOWED': 'Fleet 주소가 배포 서버의 허용 목록에 없습니다. 설정·연동 담당자가 확인해야 합니다.',
-        'PLAN_NOT_READY': '계획의 보류 사유를 먼저 해결해야 합니다.',
-        'PLAN_QUEUE_CHANGED': '요청 또는 우선순위가 변경되었습니다. 최신 지시로 다시 검토하세요.',
-        'OBSERVATION_NOT_FRESH': '검토한 관측이 오래되었습니다. 최신 원본으로 계획을 다시 만드세요.',
-        'OBSERVATION_REVISION_CHANGED': '같은 출처의 새 관측이 있습니다. 최신 원본으로 계획을 다시 검토하세요.',
-        'AUTHENTICATED_OBSERVATION_AND_EVIDENCE_PRODUCER_REQUIRED': '인증된 관측·업무 근거 연결이 필요합니다. 수동 자료는 운영 실행 근거가 아닙니다.',
-        'READINESS_BINDING_REQUIRED': '설치된 binding이 비었거나 이 계획에 대응하지 않습니다. 설치 담당자가 확인해야 합니다.',
-        'READINESS_CHECK_REQUIRED': '운영 실행 조건을 점검한 기록이 없습니다. 관리자가 ROSY 연동에서 연결을 확인하세요.',
-        'READINESS_CHECK_STALE': '마지막 연결 점검이 오래되었습니다. 관리자가 ROSY 연동에서 다시 점검하세요.',
-        'READINESS_SESSION_UNMET': 'R 세션이 설정한 서비스 신원·역할과 일치하지 않습니다. 연동 점검표를 확인하세요.',
-        'READINESS_ARM_UNMET': 'R의 ARM 작업 경로가 설치되지 않았습니다. 연동 점검표를 확인하세요.',
-        'READINESS_EVIDENCE_UNMET': 'R의 물리 근거·재확인 경로가 아직 응답하지 않습니다. 연동 점검표를 확인하세요.',
-        'READINESS_ARM_EXECUTION_UNANNOUNCED': '플랫폼이 운영 프로필의 실물 ARM 실행을 아직 알리지 않았습니다.',
-        'READINESS_EVIDENCE_PRODUCER_REQUIRED': '업무 완료 근거 생산자가 없습니다. 관리자가 사람 확인을 켜고 현장 확인자를 지정해야 합니다.',
-        'READINESS_OBSERVATION_UNAUTHENTICATED': '수동·합성 관측은 운영 실행 근거가 아닙니다.',
-        'EXECUTION_INPUTS_UNAVAILABLE': '연결 기준을 읽을 수 없습니다. 설치 담당자와 원본을 확인하세요.',
-        'BUSINESS_HOLD': '원래 실행을 찾았지만 업무 보류는 유지됩니다. 완료 근거를 확인하세요.',
-        'CANCELLATION_REQUESTED': '취소를 요청했습니다. 실제 정지·점유 해제는 아직 확인되지 않았습니다.',
-        'CANCELLATION_OUTCOME_UNKNOWN': '취소 요청의 결과가 불명입니다. 원래 실행으로 대조해야 합니다.',
-        'RECONCILIATION_REQUIRED': '제출 또는 원본 조회 결과가 불명입니다. 새로 제출하지 말고 원래 요청을 대조하세요.',
-        'LEDGER_UNAVAILABLE': '업무 장부를 읽을 수 없습니다. 실행 상태를 정상으로 판단하지 마세요.',
-    }.get(code, '현재 연결과 원래 요청을 대조해야 합니다.' if code else '')
 
 
 @require_roles('viewer', 'operator', 'admin')

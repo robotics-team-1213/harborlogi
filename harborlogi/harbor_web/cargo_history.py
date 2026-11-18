@@ -10,7 +10,7 @@ from harbor_web.command_models import EvidenceSubmission
 from harbor_web.models import (
     Command, CommandFact, DepartureIntent, FieldConfirmation, FieldEpisode, Observation, Order, Plan,
 )
-from harbor_web.workspace import COMMAND_LABELS
+from harbor_web.presentation import COMMAND_LABELS
 
 # shortcut: scans the newest 200 observations and plans; index by cargo when a yard keeps more history.
 RECENT = 200

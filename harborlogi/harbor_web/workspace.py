@@ -6,16 +6,13 @@ from django.utils import timezone
 
 from harbor_web import commands, forms, services
 from harbor_web.models import Audit, Command, Observation, Plan
+from harbor_web.presentation import COMMAND_LABELS
 from harbor_web.yard_view import yard_view, spatial_yard_view
 from harbor_web.yard_occupancy import occupancy_map
 from harbor_web.yard_rows import place_context, placement_text, route_text, yard_rows
 from harbor_web.yard_scene import present_stage, scene_for
 
 
-COMMAND_LABELS = {
-    'PREPARED': '제안 검토 대기', 'DISPATCHING': '제출 대조 필요', 'UNKNOWN': '결과 불명',
-    'CANCEL_PENDING': '취소 대조 필요', 'BLOCKED': '인계 보류', 'RECONCILED': '원본 대조됨',
-}
 
 
 def plan_changes(order, plan, *, current_queue_digest=None):
@@ -97,9 +94,8 @@ def spatial_stages(order, source, moves):
 
 
 def workspace_context(order, plan=None, *, priority_form=None, plan_form=None, review_observation=None):
-    from harbor_web.presentation import reason_text
+    from harbor_web.presentation import gate_text, reason_text
     from harbor_web.plan_explanation import explain_plan
-    from harbor_web.planning_pages import gate_text
 
     command = Command.objects.filter(order=order).select_related('plan__observation__condition', 'plan__condition').first()
     plans = Plan.objects.filter(order=order).select_related('observation__condition', 'condition').order_by('-id')

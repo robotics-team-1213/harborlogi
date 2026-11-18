@@ -4,12 +4,9 @@ from urllib.parse import urlencode, urlsplit
 
 from harbor.rosy_http import RosyClient
 from harbor.execution import execution_phase
+from harbor_web.presentation import COMMAND_LABELS
 
 
-COMMAND_LABELS = {
-    'PREPARED': '제안 검토 대기', 'DISPATCHING': '제출 대조 필요', 'UNKNOWN': '결과 불명',
-    'CANCEL_PENDING': '취소 대조 필요', 'BLOCKED': '인계 보류', 'RECONCILED': '원본 대조됨',
-}
 JOB_LABELS = {
     'awaiting_approval': '독립 승인 대기', 'awaiting_execution': '승인됨 · 수행 준비', 'executing': '수행 중',
     'awaiting_physical_evidence': '동작 성공 · 물리 근거 대기', 'physical_confirmed': '물리 결과 확인됨',
