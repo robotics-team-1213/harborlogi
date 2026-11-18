@@ -139,6 +139,15 @@ class FleetConnectionTests(TransactionTestCase):
                 Registry(config)
             self.assertEqual(client.call_args.kwargs['ca_file'], 'site-ca.pem')
 
+    def test_saving_the_connection_closes_the_execution_registry(self):
+        self.save()
+        self.addCleanup(commands.registry_close)
+        with patch.object(commands, 'WriterLease'), patch.object(commands, 'BusinessLedger'), \
+             patch.object(commands, '_repair_pending_cancellations'):
+            self.assertIs(commands.acquire_registry(), commands._registry)
+        self.save(expected_version=1)
+        self.assertIsNone(commands._registry)
+
     def test_discovery_failure_has_separate_actionable_diagnostic(self):
         from harbor.fleet_discovery import DiscoveryError
         self.save()

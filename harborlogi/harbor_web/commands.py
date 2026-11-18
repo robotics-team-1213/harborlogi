@@ -16,9 +16,9 @@ from harbor.ledger import ReadOnlyLedger, plan_payload
 from harbor.process import ArmTransferBinding
 from harbor.execution import read_arm_execution, validate_arm_execution, cancel_execution
 from harbor.workflow import BusinessLedger
-from harbor_web.command_models import ACTIVE_COMMAND_STATES
+from harbor_web.command_models import ACTIVE_COMMAND_STATES, FRESHNESS, HUMAN_PLACEMENT_SOURCE, HUMAN_RETREAT_SOURCE
 from harbor_web.models import Plan, Command, CommandFact, Audit, Observation
-from harbor_web.services import _role, Conflict, queue_digest, constraints
+from harbor_web.services import _role, Conflict, queue_digest, constraints, open_outbound_orders
 from harbor_web.coordination import serialized
 from harbor_web.readiness import REASONS as READINESS_REASONS
 # Imported by name so tests that patch `harbor_web.commands._config`/`_bound` still reach these call sites.
@@ -103,13 +103,13 @@ class Registry:
             # Unconfigured deployments keep placeholder sources that cannot authorize
             # anything: no real submission ever carries them.
             placement_sources, retreat_sources = ledger_sources()
-            from harbor_web import human_evidence as human
             self.ledger = BusinessLedger(config['path'], placement_sources=placement_sources,
                                          retreat_sources=retreat_sources,
-                                         human_placement_sources=(human.HUMAN_PLACEMENT_SOURCE,),
-                                         human_retreat_sources=(human.HUMAN_RETREAT_SOURCE,),
-                                         human_freshness=human.FRESHNESS)
-            from harbor_web.fleet_connection import fleet_client
+                                         human_placement_sources=(HUMAN_PLACEMENT_SOURCE,),
+                                         human_retreat_sources=(HUMAN_RETREAT_SOURCE,),
+                                         human_freshness=FRESHNESS)
+            from harbor_web.fleet_connection import fleet_client, on_connection_saved
+            on_connection_saved(registry_close)  # A saved connection must drop the registry built from the old one.
             self.client = fleet_client(config, config['token'])
             self.client.expected_principal = config['principal']
             self.client.expected_role = 'service'
@@ -414,8 +414,7 @@ def advance_command(command, registry, *, evidence=None):
                 if command.state not in PROPOSE_STATES:
                     return command.state  # An uncertain prior stage must reconcile first.
                 if row['step_index'] and command.order.kind == 'REARRANGE':
-                    from harbor_web.rearrangement import outbound_pending
-                    if outbound_pending():
+                    if open_outbound_orders().exists():
                         return command.state  # Outbound first (design 32): no further R2 move starts.
                 return _submit_stage(command, registry, command.actor).state
             if row['state'] in ('WAITING', 'HOLD'):

@@ -141,7 +141,7 @@ def intake_provider():
     return evidence
 
 
-def physical_provider():
+def physical_provider(acquire_registry):
     """Read original Fleet closure facts for a current step; final evidence stays separate."""
     from harbor.physical_evidence import fleet_move_evidence
     from harbor.process import ArmTransferBinding
@@ -159,7 +159,6 @@ def physical_provider():
                 or payload.get('execution_kind') != 'ARM_TRANSFER'
                 or row['mission_id'] is None or row['attempt_id'] is None):
             return None
-        from harbor_web.commands import acquire_registry
         binding = ArmTransferBinding(**payload['moves'][row['step_index']])
         return fleet_move_evidence(acquire_registry().client, binding,
             f"{row['request_key']}:{row['step_index']}", mission_id=row['mission_id'],

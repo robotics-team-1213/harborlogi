@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 from django.conf import settings
 from django.db import models
 from django.core.exceptions import ValidationError
@@ -6,6 +7,11 @@ from django.core.exceptions import ValidationError
 
 # Design 28: one ACTIVE command per order; terminal commands remain as history.
 ACTIVE_COMMAND_STATES = ('PREPARED', 'DISPATCHING', 'RECONCILED', 'UNKNOWN', 'CANCEL_PENDING')
+
+# Named-person evidence sources (ADR 0023): the ledger (commands) and the producer (human_evidence) share these.
+HUMAN_PLACEMENT_SOURCE = 'human-attested-placement'
+HUMAN_RETREAT_SOURCE = 'human-attested-retreat'
+FRESHNESS = timedelta(minutes=5)  # The ledger's human window.
 
 
 class CommandQuerySet(models.QuerySet):
