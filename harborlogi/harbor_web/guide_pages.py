@@ -1,7 +1,7 @@
 """Role-scoped operating guidance; reading guidance never probes or controls Fleet."""
 from harbor_web.auth import require_roles, roles
 from harbor_web.scenarios import scenario_rows
-from harbor_web.views import page
+from harbor_web.page_helpers import page
 from django import forms
 from django.contrib import messages
 from django.core.exceptions import ValidationError

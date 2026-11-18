@@ -14,7 +14,7 @@ from harbor_web import rearrangement, services
 from harbor_web.auth import has_role, require_roles
 from harbor_web.inbound_decision import inbound_progress, projected_snapshot
 from harbor_web.models import Audit, Observation, Plan, RearrangeAuthorization
-from harbor_web.views import page
+from harbor_web.page_helpers import page
 from harbor_web.yard_rows import place_context, place_label
 
 PREVIEW_K, PREVIEW_MAX_MOVES = 2, 6  # the defaults of a requested rearrangement (rearrangement.request_rearrangement)

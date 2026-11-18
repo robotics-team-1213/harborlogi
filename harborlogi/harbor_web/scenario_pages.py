@@ -12,7 +12,7 @@ from django.views.decorators.http import require_http_methods
 from harbor_web import scenario_import, services
 from harbor_web.auth import has_role, require_roles
 from harbor_web.models import Audit
-from harbor_web.views import page
+from harbor_web.page_helpers import page
 
 
 class ScenarioForm(forms.Form):

@@ -4,7 +4,7 @@ from django.utils import timezone
 
 from harbor_web import services
 from harbor_web.models import Audit, Command, Observation, Order, Plan
-from harbor_web.workspace import COMMAND_LABELS
+from harbor_web.presentation import COMMAND_LABELS
 from harbor_web.yard_rows import DEFAULT_SLOT, place_context, place_label, slot_key, yard_rows
 
 ATTENTION_STATES = ('UNKNOWN', 'DISPATCHING', 'CANCEL_PENDING', 'BLOCKED')

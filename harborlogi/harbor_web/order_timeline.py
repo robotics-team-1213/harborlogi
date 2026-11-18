@@ -7,7 +7,7 @@ and completion is only a Command in COMPLETED (the business ledger's reconciliat
 from harbor_web.command_models import EvidenceSubmission, HumanAttestation
 from harbor_web.models import Audit, Command, CommandFact, DepartureIntent, FieldConfirmation, Plan
 from harbor_web.operations import move_phases
-from harbor_web.workspace import COMMAND_LABELS
+from harbor_web.presentation import COMMAND_LABELS
 
 LABELS = dict(COMMAND_LABELS, CANCELLED='취소됨', COMPLETED='업무 완료(업무 장부 대조)')
 

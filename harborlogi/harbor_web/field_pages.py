@@ -12,7 +12,7 @@ from django.views.decorators.http import require_http_methods
 from harbor_web import forms, services
 from harbor_web.auth import has_role, require_roles
 from harbor_web.models import DepartureIntent, FieldConfirmation, FieldEpisode, Order
-from harbor_web.views import form_error, form_page, page, paginate
+from harbor_web.page_helpers import form_error, form_page, page, paginate
 
 
 class ReassignForm(django_forms.Form):
