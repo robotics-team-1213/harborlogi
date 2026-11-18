@@ -62,7 +62,7 @@ class Command(models.Model):
         ]
 
 
-from harbor_web.models import Immutable
+from harbor_web.model_base import Immutable
 
 
 class CommandFact(Immutable):
