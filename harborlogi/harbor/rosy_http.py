@@ -4,12 +4,9 @@ import json
 import math
 import re
 from urllib.parse import quote, urlsplit
-from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
+from urllib.request import HTTPSHandler, Request, build_opener
 
-
-class _NoRedirect(HTTPRedirectHandler):
-    def redirect_request(self, *args, **kwargs):
-        return None
+from harbor.fleet_discovery import _NoRedirect
 
 
 class FleetIdentityError(ValueError):

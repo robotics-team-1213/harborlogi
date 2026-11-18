@@ -10,7 +10,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPSHandler, ProxyHandler, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, build_opener
 
 
 SERVICE_TYPE = '_rosy-fleet._tcp.local.'
@@ -174,9 +174,13 @@ class _SiteHTTPSHandler(HTTPSHandler):
         return self.do_open(connect, request)
 
 
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
 def endpoint_opener(candidate, origin, ca_file, timeout):
     """Validate the installed name/CA and health before any bearer is sent."""
-    from harbor.rosy_http import _NoRedirect
     selected = select_endpoint([candidate], origin)
     context = site_ssl_context(ca_file)
     opener = build_opener(ProxyHandler({}), _NoRedirect(), _SiteHTTPSHandler(selected, context))
