@@ -426,10 +426,11 @@ def inventory(request):
                     place=f"{cell['row']}행 {cell['column']}열 {level}층") for cell in cells)
     placement_rows = [dict(cargo=item['cargo_id'], place=placement_text(item, labels, slot))
                       for item in (selected.payload.get('placements', []) if selected else [])]
+    from harbor_web.yard_pages import yard_page_context
     return page(request, 'inventory.html', section='inventory', observation=selected, observations=choices, topview=topview_context(),
                 condition=condition, condition_filter='condition' in request.GET,
                 conditions=Condition.objects.order_by('-pk'), definition_rows=definition_rows,
-                placement_rows=placement_rows, yard_stage=stage, yard_scene=scene)
+                placement_rows=placement_rows, yard_stage=stage, yard_scene=scene, **yard_page_context(selected))
 
 
 @require_roles('admin')
