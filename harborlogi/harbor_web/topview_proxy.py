@@ -19,7 +19,7 @@ from django.views.decorators.http import require_http_methods
 
 from harbor.rosy_http import RosyClient
 from harbor.rosy_vision import FRAME_HEADERS, StaleFrameError, VisionClient
-from harbor_web.access import READ
+from harbor_web.access import EVERYONE
 
 from harbor_web.auth import require_roles
 
@@ -60,7 +60,7 @@ def topview_context():
         return dict(sources=[], status='ROSY 연결 안 됨')
 
 
-@require_roles(*READ)
+@require_roles(*EVERYONE)
 @require_http_methods(['GET'])
 def topview_frame(request, source_id):
     """source_id 카메라의 최신 탑뷰 JPEG 한 장을 프록시한다."""

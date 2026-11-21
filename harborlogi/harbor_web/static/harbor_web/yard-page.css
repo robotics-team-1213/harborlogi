@@ -1,0 +1,198 @@
+.yard-page-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--primitive-space-4);
+  align-items: start;
+}
+
+@media (min-width: 1100px) {
+  .yard-page-layout {
+    grid-template-columns: minmax(0, 2.2fr) minmax(0, 1fr);
+  }
+}
+
+.yard-page-layout > * {
+  min-width: 0;
+}
+
+.yard-main-col {
+  display: grid;
+  gap: var(--primitive-space-4);
+  min-width: 0;
+}
+
+.yard-preview-col {
+  display: grid;
+  gap: var(--primitive-space-4);
+  min-width: 0;
+}
+
+.yard-page-layout .yard-topview {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1280px) {
+  .yard-page-layout .yard-topview {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  }
+}
+
+.yard-inline-3d {
+  max-width: none;
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.yard-inline-3d[data-active-plan] {
+  border-color: var(--semantic-border-selected);
+}
+
+.yard-inline-stages {
+  margin-bottom: var(--primitive-space-3);
+}
+
+.yard-arrows-panel {
+  padding: var(--primitive-space-4);
+  background: var(--semantic-surface-canvas);
+  border: var(--primitive-border-thin) solid var(--semantic-border-divider);
+  border-radius: var(--primitive-radius-control);
+  min-width: 0;
+}
+
+.yard-arrows-panel h3 {
+  margin: 0 0 var(--primitive-space-3);
+  font-size: var(--primitive-font-label);
+}
+
+.yard-arrows-empty {
+  margin: 0;
+}
+
+.yard-arrows-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--primitive-space-2);
+}
+
+.yard-arrows-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--primitive-space-2);
+  padding: var(--primitive-space-2) var(--primitive-space-3);
+  background: var(--semantic-surface-panel);
+  border: var(--primitive-border-thin) solid var(--semantic-border-divider);
+  border-radius: var(--primitive-radius-small);
+  font-size: var(--primitive-font-label);
+}
+
+.yard-arrow-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--primitive-space-6);
+  height: var(--primitive-space-6);
+  border-radius: var(--primitive-radius-small);
+  background: var(--primitive-color-navy-soft);
+  color: var(--semantic-text-primary);
+  font-size: var(--primitive-font-caption);
+  font-weight: var(--primitive-font-bold);
+}
+
+.yard-arrow-route {
+  color: var(--semantic-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.yard-arrow-arm {
+  margin-left: auto;
+  font-size: var(--primitive-font-caption);
+  color: var(--semantic-text-secondary);
+  font-weight: var(--primitive-font-strong);
+}
+
+.yard-upcoming-panel .panel-h {
+  justify-content: space-between;
+}
+
+.yard-chain-action {
+  margin-bottom: var(--primitive-space-3);
+}
+
+.yard-upcoming-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--primitive-space-2);
+}
+
+.yard-upcoming-btn,
+.yard-upcoming-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--primitive-space-2) var(--primitive-space-3);
+  align-items: start;
+  width: 100%;
+  padding: var(--primitive-space-3);
+  border: var(--primitive-border-thin) solid var(--semantic-border-divider);
+  border-radius: var(--primitive-radius-control);
+  background: var(--semantic-surface-panel);
+  color: var(--semantic-text-primary);
+  text-align: left;
+  font-weight: var(--primitive-font-regular);
+}
+
+.yard-upcoming-btn {
+  cursor: pointer;
+  justify-content: start;
+}
+
+.yard-upcoming-btn:hover {
+  background: var(--semantic-surface-row-hover);
+  border-color: var(--semantic-border-control);
+  color: var(--semantic-text-primary);
+}
+
+.yard-upcoming-btn[aria-pressed="true"] {
+  background: var(--semantic-surface-selected);
+  border-color: var(--semantic-border-selected);
+  color: var(--semantic-text-primary);
+}
+
+.yard-upcoming-main {
+  display: grid;
+  gap: var(--primitive-space-1);
+  min-width: 0;
+}
+
+.yard-upcoming-main strong {
+  font-size: var(--primitive-font-label);
+  overflow-wrap: anywhere;
+}
+
+.yard-upcoming-main small {
+  font-size: var(--primitive-font-caption);
+  color: var(--semantic-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.yard-upcoming-empty {
+  margin: 0;
+}
+
+.yard-source-fold {
+  margin-top: var(--primitive-space-6);
+  padding: 0 var(--primitive-space-4);
+  background: var(--semantic-surface-panel);
+  border: var(--primitive-border-thin) solid var(--semantic-border-divider);
+  border-radius: var(--primitive-radius-panel);
+}
+
+.yard-source-body {
+  display: grid;
+  gap: var(--primitive-space-4);
+  padding-bottom: var(--primitive-space-4);
+}

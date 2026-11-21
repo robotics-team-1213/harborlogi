@@ -10,6 +10,7 @@ from harbor_web.models import Command, CargoFootprint, Observation, Order, Plan
 def placement_reservations(order, observation):
     """Earlier automatic requests reserve empty cells, never observed support."""
     from harbor.spatial import CargoShape, Placement
+    from harbor_web.inbound_decision import placement_decision
     binding = order.planning_observation if order.planning_observation_id else observation
     seen = {item['cargo_id'] for item in observation.payload.get('placements', [])}
     cells, references = set(), []
@@ -25,7 +26,9 @@ def placement_reservations(order, observation):
                 or plan.observation.source_id != observation.source_id
                 or plan.condition_id != observation.condition_id):
             continue
-        recommendation, incoming = plan.result.get('recommendation'), plan.result.get('incoming_shape')
+        decision = placement_decision(plan)
+        recommendation = decision.detail['recommendation'] if decision else plan.result.get('recommendation')
+        incoming = plan.result.get('incoming_shape')
         if recommendation is None or incoming is None:
             continue
         shape, placement = CargoShape(**incoming), Placement(**recommendation)

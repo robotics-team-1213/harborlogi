@@ -39,7 +39,7 @@ def _yard_stages(order, plan, source):
         return [], []
     if source.payload.get('schema') == 'grid-placement-v1':
         return spatial_stages(order, source, plan.result['moves'] if plan and plan.result['status'] == 'READY' else [])
-    target = order.cargo.code
+    target = order.cargo.code if order.cargo_id else ''
     blockers = set()
     for bay in source.payload['bays']:
         if target in bay['cargo']:
@@ -49,7 +49,7 @@ def _yard_stages(order, plan, source):
 
     def stage(index, phase, label, move=None):
         return present_stage(dict(yard_view(bays, policy, target=target, blockers=blockers), index=index, phase=phase, label=label, move=move,
-                    panel_id=f'yard-{order.pk}-{index}'), policy)
+                    panel_id=f'yard-{order.pk or 0}-{index}'), policy)
 
     stages = [stage(0, '관측', '관측한 배치')]
     moves = plan.result['moves'] if plan and plan.result['status'] == 'READY' else []
@@ -67,14 +67,15 @@ def _yard_stages(order, plan, source):
     return stages, display_moves
 
 
-def spatial_stages(order, source, moves):
+def spatial_stages(order, source, moves, *, snapshot=None):
     from harbor.spatial import Placement
-    current = services.spatial_snapshot(source)
+    current = services.spatial_snapshot(source) if snapshot is None else snapshot
     blockers = {m['cargo_id'] for m in moves if m['phase_label'] == '재취급'}
+    target = order.cargo.code if order.cargo_id else ''
 
     def stage(index, phase, label, move=None):
-        view = spatial_yard_view(current, target=order.cargo.code, blockers=blockers)
-        return present_stage(dict(view, index=index, phase=phase, label=label, move=move, panel_id=f'yard-{order.pk}-{index}'), source.condition.payload)
+        view = spatial_yard_view(current, target=target, blockers=blockers)
+        return present_stage(dict(view, index=index, phase=phase, label=label, move=move, panel_id=f'yard-{order.pk or 0}-{index}'), source.condition.payload)
 
     stages, display_moves = [stage(0, '관측', '관측한 배치')], []
     labels, slot = place_context(source.condition.payload)

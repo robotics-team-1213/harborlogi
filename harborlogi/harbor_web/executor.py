@@ -153,3 +153,22 @@ def start():
 
 def stop():
     _stop.set()
+
+
+def status():
+    """Read-only executor state for UI display; executes no DB queries when disabled."""
+    thread = _thread
+    running = bool(thread is not None and thread.is_alive() and not _stop.is_set())
+    enabled = os.environ.get('HARBOR_EXECUTOR_ENABLED') == '1'
+    blocked = ''
+    if running or enabled:
+        from harbor_web.runtime import execution_block_reason
+        blocked = execution_block_reason()
+    active = (running or enabled) and not blocked
+    return dict(
+        enabled=active,
+        running=running,
+        blocked=blocked,
+        label='자동 진행 켜짐' if active else '자동 진행 꺼짐',
+        tone='good' if active else 'neutral',
+    )

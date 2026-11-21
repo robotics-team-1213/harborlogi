@@ -109,6 +109,24 @@ class IntakeLedger:
             return [json.loads(r["payload"]) for r in c.execute(
                 "SELECT payload FROM port_events WHERE outcome='HOLD_UNKNOWN' ORDER BY rowid")]
 
+    def holds(self):
+        """Intake rows waiting for human review (HOLD or UNREADABLE attention), oldest update first."""
+        with closing(self._connect()) as c:
+            rows = c.execute(
+                "SELECT * FROM intake WHERE state='HOLD' OR attention IS NOT NULL ORDER BY updated_at ASC, object_ref ASC"
+            ).fetchall()
+        items = []
+        for row in rows:
+            item = dict(row)
+            item["reason"] = item["hold_reason"] or item["attention"]
+            item["can_attest"] = (
+                item["attention"] == "UNREADABLE"
+                and item["hold_reason"] is None
+                and item["state"] not in ("HOLD", "COMPLETED")
+            )
+            items.append(item)
+        return items
+
     def expect(self, object_ref, *, now):
         """Declare a cargo on a trip: the manifest that makes later events KNOWN."""
         _ref(object_ref)

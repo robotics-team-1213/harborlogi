@@ -53,3 +53,14 @@ class DepartureLedger:
             newest = max(current, key=lambda r: datetime.fromisoformat(r["observed_at"]))
             c.execute("UPDATE release_permits SET state='AUTHORIZED' WHERE event_id=?", (newest["event_id"],))
             return newest["event_id"]
+
+    def has_permit(self, vehicle_id, *, since) -> bool:
+        """Return whether any ROSY release permission for `vehicle_id` was observed at or after `since`."""
+        identifier(vehicle_id)
+        aware_time(since)
+        with closing(self._connect()) as c:
+            rows = c.execute(
+                "SELECT observed_at FROM release_permits WHERE vehicle_id=? AND state IN ('PERMITTED', 'AUTHORIZED')",
+                (vehicle_id,),
+            ).fetchall()
+        return any(datetime.fromisoformat(r["observed_at"]) >= since for r in rows)

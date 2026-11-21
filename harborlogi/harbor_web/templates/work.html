@@ -1,5 +1,51 @@
-{% extends 'base.html' %}{% block title %}실행·대조{% endblock %}{% block content %}
-<div class="page-head"><div><span class="eyebrow">ROSY 연동</span><h1>실행·대조</h1><p>먼저 결과 불명과 취소 대기 업무를 찾고, 원래 요청으로 수행 결과를 대조하세요.</p></div><a href="/workflow/">진행 방법</a></div>
-<form class="toolbar" method="get"><label>화물 ID·실행 ID<input type="search" name="q" value="{{ q }}" maxlength="200"></label><label>인계 상태<select name="state"><option value="">전체</option><option value="UNKNOWN" {% if state == 'UNKNOWN' %}selected{% endif %}>결과 불명</option><option value="DISPATCHING" {% if state == 'DISPATCHING' %}selected{% endif %}>제출 대조 필요</option><option value="PREPARED" {% if state == 'PREPARED' %}selected{% endif %}>제안 검토 대기</option><option value="RECONCILED" {% if state == 'RECONCILED' %}selected{% endif %}>원본 대조됨</option><option value="CANCEL_PENDING" {% if state == 'CANCEL_PENDING' %}selected{% endif %}>취소 대조 필요</option><option value="BLOCKED" {% if state == 'BLOCKED' %}selected{% endif %}>인계 보류</option></select></label><button type="submit" class="quiet">찾기</button></form>
-{% if page %}<div class="table-wrap"><table><caption>실행 인계 {{ page.paginator.count }}건 · 원본 대조는 업무 완료와 별도입니다.</caption><thead><tr><th scope="col">화물·계획</th><th scope="col">인계 상태</th><th scope="col">실행 원본</th><th scope="col">마지막 기록</th></tr></thead><tbody>{% for command in page %}<tr><td><a href="/work/{{ command.pk }}/">{{ command.plan.order.cargo.code|default:'재배치' }} 실행 확인</a><small>계획 #{{ command.plan_id }}</small></td><td><span class="badge {{ command.state }}">{{ command.display_state }}</span></td><td>{% if command.mission_id %}<code>{{ command.mission_id }}</code>{% else %}아직 확인되지 않음{% endif %}</td><td>{{ command.updated_at|date:'m-d H:i' }}</td></tr>{% endfor %}</tbody></table></div>{% include 'pagination.html' %}{% else %}<div class="empty"><h2>해당 실행 인계가 없습니다</h2><p>반출 업무에서 원본과 계획을 검토한 뒤, 지원되는 현재 단계를 인계합니다.</p><a href="/requests/?kind=OUTBOUND">반출 업무 보기</a></div>{% endif %}
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}작업{% endblock %}
+{% block crumb %}작업{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>작업</h1></div></div>
+<div class="work-hub">
+<section class="panel" aria-labelledby="work-today">
+  <div class="panel-h"><h2 id="work-today">오늘 시간표</h2></div>
+  <div class="panel-b">
+    <p class="helptext">지난 일은 완료 기록 시각 · 앞일은 진행 중인 일과 등록된 우선순위·순서만 표시합니다.</p>
+    {% if timeline %}<ol class="work-timeline" aria-label="오늘 작업 순서">
+    {% for row in timeline %}<li class="work-item work-{{ row.tone }}">
+      {% if row.recorded_at %}<time datetime="{{ row.recorded_at|date:'c' }}">{{ row.recorded_at|date:'H:i' }}</time>{% else %}<span class="helptext">{% if row.state == '진행 중' %}지금{% else %}다음{% endif %}</span>{% endif %}
+      <a href="{{ row.href }}">{% if row.order.cargo_id %}{{ row.order.cargo.code }} {% endif %}{{ row.kind }}</a>
+      <span class="work-state">{{ row.state }}</span>
+    </li>{% endfor %}</ol>{% else %}<p>등록된 작업이 없습니다</p>{% endif %}
+    <p class="helptext">상태는 ROSY 실행 결과로 바뀜</p>
+  </div>
+</section>
+<section class="panel" aria-labelledby="work-outbound">
+  <div class="panel-h"><h2 id="work-outbound">반출 순서</h2><span class="scope">{% if can_operate and outbound %}순서 바꾸기 시뮬레이션 후 적용{% else %}등록된 순서 · 읽기 전용{% endif %}</span></div>
+  <div class="panel-b"{% if can_operate and outbound %} data-reorder-editor data-validate-url="{% url 'outbound_validate' %}" data-reorder-url="{% url 'outbound_reorder' %}"{% endif %}>
+    {% if outbound %}
+    {% if can_operate %}<p id="wk-edit-help" class="helptext" hidden>카드를 끌어 옮기거나 ‘맨 앞으로’·좌우 화살표로 순서를 바꾼 뒤 ‘이 순서 검증해 보기’를 누르세요. 실행 중인 반출은 옮길 수 없습니다.</p>{% endif %}
+    <ol id="wk-flow" class="work-flow" aria-label="반출 순서">
+    {% for row in outbound %}<li class="work-{{ row.tone }}" data-order="{{ row.order.pk }}" data-version="{{ row.order.version }}" data-tier="{{ row.order.priority_group }}" data-code="{{ row.order.cargo.code }}" data-running="{% if row.state == '진행 중' %}1{% else %}0{% endif %}"><span class="work-chip"><span data-reorder-seq>{{ forloop.counter }}</span> <a href="{{ row.href }}">{{ row.order.cargo.code }}</a> <span>{{ row.order.tier_label }}</span> <span class="work-state">{{ row.state }}</span></span>{% if row.order.tie_policy == 'ANY' %}<small>같은 우선순위 안 순서 미지정</small>{% endif %}</li>{% endfor %}
+    </ol>
+    {% if can_operate %}<div id="wk-out-actions" class="actions"></div><div id="wk-result" aria-live="polite"></div><form method="post" action="{% url 'outbound_reorder' %}" data-reorder-form hidden>{% csrf_token %}</form><script type="module" src="{% static 'harbor_web/reorder.js' %}"></script>{% endif %}
+    {% else %}<p>남은 반출 작업이 없습니다</p>{% endif %}
+  </div>
+</section>
+<section class="panel" aria-labelledby="work-inbound">
+  <div class="panel-h"><h2 id="work-inbound">입고 자리</h2><span class="scope">저장된 추천 자리 · 실제 적재는 실행 후 반영</span></div>
+  <div class="panel-b">
+    {% if inbound %}<ul class="work-inbound">
+    {% for row in inbound %}<li class="work-{{ row.tone }}"><a href="{{ row.href }}">{{ row.order.cargo.code }} 입고</a> <span>{{ row.place|default:'자리 결정 대기' }}</span> <span class="work-state">{{ row.state }}</span>{% if row.place %}<a href="/plans/{{ row.plan.pk }}/">추천 자리 보기</a>{% endif %}</li>{% endfor %}
+    </ul>{% else %}<p>남은 입고 작업이 없습니다</p>{% endif %}
+  </div>
+</section>
+<details class="panel work-auto">
+  <summary>자동 재배치</summary>
+  <div class="panel-b">
+    <p>자동 운전 실행 연동 전 · 실행은 ROSY Fleet에서 승인한 뒤 시작됩니다.</p>
+    {% if authorization %}<p>저장된 허용 범위: 이동 최대 {{ authorization.max_moves }}개 · 하루 최대 {{ authorization.daily_limit }}건 · {{ authorization.valid_until|date:'m-d H:i' }}까지</p>{% else %}<p>저장된 자동 재배치 허용 범위가 없습니다.</p>{% endif %}
+    {% if rearrangements %}<ul>{% for row in rearrangements %}<li><a href="{{ row.href }}">재배치 작업 보기</a> <span class="work-state">{{ row.state }}</span></li>{% endfor %}</ul>{% else %}<p>남은 재배치 작업이 없습니다</p>{% endif %}
+    <a href="/rearrangement/">자동 재배치 상세{% if can_operate %}(예외){% endif %}</a>
+  </div>
+</details>
+</div>
 {% endblock %}

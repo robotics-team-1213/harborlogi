@@ -94,6 +94,15 @@ def _key(codes):
     return lambda s: (not s.feasible, s.total_moves, s.rehandles, [codes.index(code) for code in s.order])
 
 
+def evaluate_order(snapshot: SpatialSnapshot, policy: SpatialPolicy, order: tuple[str, ...] | list[str], *,
+                   now: datetime, schedule: dict | None = None, group: int = 1) -> RetrievalScenario:
+    """Simulate retrieving `order` sequentially on `snapshot` without mutating persisted state."""
+    codes = tuple(order)
+    if len(set(codes)) != len(codes):
+        raise ValueError('Retrieval order must not contain duplicate cargo')
+    return _play(snapshot, policy, codes, now=now, schedule=dict(schedule or {}), group=group, exhaustive=False)
+
+
 def rank_retrieval_orders(snapshot: SpatialSnapshot, policy: SpatialPolicy, codes: tuple[str, ...], *, now: datetime,
                           schedule: dict, group: int, keep: int = 2, exact_limit: int = EXACT_LIMIT) -> list[RetrievalScenario]:
     """Best `keep` retrieval orders of `codes`; `schedule` ranks every other cargo as the planner expects."""

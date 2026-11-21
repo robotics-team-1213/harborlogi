@@ -78,6 +78,11 @@ export function mountTopview(panel) {
   window.addEventListener('pagehide', () => { stop(); clearImage(); });
   window.addEventListener('pageshow', event => { if (event.persisted) restart(); });
   refresh();
+  return () => {
+    stop();
+    clearImage();
+    document.removeEventListener('visibilitychange', restart);
+  };
 }
 
 if (typeof document !== 'undefined') {

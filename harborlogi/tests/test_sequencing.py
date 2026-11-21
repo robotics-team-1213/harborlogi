@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 
 from harbor.layout import YardCell, YardLayout
-from harbor.sequencing import rank_retrieval_orders
+from harbor.sequencing import evaluate_order, rank_retrieval_orders
 from harbor.spatial import Area, CargoShape, Placement, SpatialPolicy, SpatialSnapshot
 
 NOW = datetime(2026, 11, 7, tzinfo=timezone.utc)
@@ -56,6 +56,16 @@ class SequencingTests(unittest.TestCase):
         self.assertFalse(ranked[0].exhaustive)
         exact = rank_retrieval_orders(yard, policy(), ('A', 'B', 'C'), now=NOW, schedule={}, group=3)
         self.assertTrue(exact[0].exhaustive)
+
+    def test_evaluate_order_wraps_simulation_and_rejects_duplicates(self):
+        yard = snapshot([('A', 1, 1), ('B', 1, 2), ('C', 2, 1)])
+        good = evaluate_order(yard, policy(), ('B', 'A'), now=NOW)
+        rehandled = evaluate_order(yard, policy(), ('A', 'B'), now=NOW)
+        self.assertEqual((good.feasible, good.rehandles, good.total_moves), (True, 0, 2))
+        self.assertEqual((rehandled.feasible, rehandled.rehandles), (True, 1))
+        self.assertGreater(rehandled.total_moves, good.total_moves)
+        with self.assertRaises(ValueError):
+            evaluate_order(yard, policy(), ('A', 'A'), now=NOW)
 
 
 if __name__ == '__main__':

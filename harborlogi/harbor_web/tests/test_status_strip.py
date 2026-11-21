@@ -1,15 +1,18 @@
 from datetime import datetime, timedelta, timezone as dt_timezone
+import os
 from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser, Group, User
 from django.db import connection
 from django.test import RequestFactory, TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
-from harbor_web import services
+from harbor_web import executor, services
 from harbor_web.commands import _save
 from harbor_web.models import Command, FieldEpisode, Order
+from harbor_web.runtime_models import DeploymentState
 from harbor_web.strip import status_strip
 from harbor_web.tests import test_services as fixtures
 
@@ -129,3 +132,92 @@ class StatusStripTests(TestCase):
 
         self.assertLessEqual(small, 12)
         self.assertEqual(small, large)
+
+    def test_executor_status_defaults_off_with_zero_queries(self):
+        with patch.dict(os.environ, {'HARBOR_EXECUTOR_ENABLED': ''}):
+            with self.assertNumQueries(0):
+                info = executor.status()
+        self.assertEqual(info, dict(enabled=False, running=False, blocked='',
+                                    label='자동 진행 꺼짐', tone='neutral'))
+        self.client.force_login(self.operator)
+        with patch.dict(os.environ, {'HARBOR_EXECUTOR_ENABLED': ''}):
+            resp = self.client.get('/workflow/')
+        self.assertEqual(resp.context['status_strip']['executor'], info)
+        self.assertEqual(resp.context['status_strip']['executor_label'], '자동 진행 꺼짐')
+        self.assertEqual(resp.context['status_strip']['executor_tone'], 'neutral')
+        self.assertContains(
+            resp,
+            '<span class="strip-item strip-executor"><span class="strip-pill tone-neutral">자동 진행 꺼짐</span></span>',
+        )
+
+    def test_executor_status_enabled_when_env_set_and_unblocked(self):
+        DeploymentState.objects.update_or_create(pk=1, defaults={'mode': settings.MODE, 'restored_at': None})
+        self.client.force_login(self.operator)
+        with patch.dict(os.environ, {'HARBOR_EXECUTOR_ENABLED': '1'}):
+            info = executor.status()
+            resp = self.client.get('/workflow/')
+        self.assertEqual(info, dict(enabled=True, running=False, blocked='',
+                                    label='자동 진행 켜짐', tone='good'))
+        self.assertEqual(resp.context['status_strip']['executor_label'], '자동 진행 켜짐')
+        self.assertEqual(resp.context['status_strip']['executor_tone'], 'good')
+        self.assertContains(
+            resp,
+            '<span class="strip-item strip-executor"><span class="strip-pill tone-good">자동 진행 켜짐</span></span>',
+        )
+
+    def test_executor_status_blocked_override_shows_off(self):
+        self.client.force_login(self.operator)
+        DeploymentState.objects.all().delete()
+        with patch.dict(os.environ, {'HARBOR_EXECUTOR_ENABLED': '1'}):
+            missing = executor.status()
+            resp_missing = self.client.get('/workflow/')
+        self.assertFalse(missing['enabled'])
+        self.assertEqual(missing['blocked'], 'DEPLOYMENT_PROFILE_REQUIRED')
+        self.assertEqual(missing['label'], '자동 진행 꺼짐')
+        self.assertEqual(missing['tone'], 'neutral')
+        self.assertContains(
+            resp_missing,
+            '<span class="strip-item strip-executor"><span class="strip-pill tone-neutral">자동 진행 꺼짐</span></span>',
+        )
+
+        DeploymentState.objects.update_or_create(pk=1, defaults={'mode': settings.MODE, 'restored_at': self.now})
+        with patch.dict(os.environ, {'HARBOR_EXECUTOR_ENABLED': '1'}):
+            restored = executor.status()
+            resp_restored = self.client.get('/workflow/')
+        self.assertFalse(restored['enabled'])
+        self.assertEqual(restored['blocked'], 'RESTORE_RECONCILIATION_REQUIRED')
+        self.assertEqual(restored['label'], '자동 진행 꺼짐')
+        self.assertEqual(restored['tone'], 'neutral')
+        self.assertContains(
+            resp_restored,
+            '<span class="strip-item strip-executor"><span class="strip-pill tone-neutral">자동 진행 꺼짐</span></span>',
+        )
+
+        DeploymentState.objects.update_or_create(pk=1, defaults={'mode': settings.MODE, 'restored_at': None})
+        with patch.dict(os.environ, {'HARBOR_EXECUTOR_ENABLED': '1'}), \
+                patch('harbor_web.runtime.execution_block_reason', return_value='CUSTOM_BLOCK'):
+            override_info = executor.status()
+            resp_override = self.client.get('/workflow/')
+        self.assertFalse(override_info['enabled'])
+        self.assertEqual(override_info['blocked'], 'CUSTOM_BLOCK')
+        self.assertEqual(override_info['label'], '자동 진행 꺼짐')
+        self.assertEqual(override_info['tone'], 'neutral')
+        self.assertContains(
+            resp_override,
+            '<span class="strip-item strip-executor"><span class="strip-pill tone-neutral">자동 진행 꺼짐</span></span>',
+        )
+
+    def test_executor_status_reflects_live_thread(self):
+        DeploymentState.objects.get_or_create(pk=1, defaults={'mode': settings.MODE})
+        with patch.dict(os.environ, {'HARBOR_EXECUTOR_ENABLED': '', 'HARBOR_EXECUTOR_INTERVAL': '60'}):
+            thread = executor.start()
+            try:
+                info = executor.status()
+                self.assertTrue(info['running'])
+                self.assertTrue(info['enabled'])
+                self.assertEqual(info['label'], '자동 진행 켜짐')
+                self.assertEqual(info['tone'], 'good')
+            finally:
+                executor.stop()
+                thread.join(timeout=2)
+        self.assertFalse(executor.status()['running'])

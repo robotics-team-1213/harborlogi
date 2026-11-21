@@ -192,6 +192,28 @@ class PortEventTests(unittest.TestCase):
         # 거절한 허락은 소비되지 않고, 경계 시각과 같은 허락은 쓸 수 있다.
         self.assertEqual(departures.authorize('pinky-1', since=observed), permit['event_id'])
 
+    def test_holds_lists_hold_and_unreadable_and_excludes_attested_or_completed(self):
+        self.ledger.expect('C-2', now=NOW + timedelta(seconds=1))
+        self.ledger.expect('C-3', now=NOW + timedelta(seconds=2))
+        self.ledger.expect('C-4', now=NOW + timedelta(seconds=3))
+        self.ledger.arrive('C-2', now=NOW + timedelta(seconds=1))
+        self.ledger.arrive('C-3', now=NOW + timedelta(seconds=2))
+        self.ledger.arrive('C-4', now=NOW + timedelta(seconds=3))
+        self.poll(
+            failed('UNREADABLE', 'C-1', 'obs-u'),
+            failed('MISMATCH', 'C-2', 'obs-m'),
+            failed('UNREADABLE', 'C-3', 'obs-u3'),
+            failed('LOST', 'C-3', 'obs-l3'),
+            stored('C-4', 'obs-s4'),
+        )
+        holds = {row['object_ref']: row for row in self.ledger.holds()}
+        self.assertEqual(set(holds), {'C-1', 'C-2', 'C-3'})
+        self.assertEqual((holds['C-1']['reason'], holds['C-1']['can_attest']), ('UNREADABLE', True))
+        self.assertEqual((holds['C-2']['reason'], holds['C-2']['can_attest']), ('MISMATCH', False))
+        self.assertEqual((holds['C-3']['reason'], holds['C-3']['can_attest']), ('LOST', False))
+        self.ledger.attest_received('C-1', attested_by='operator-1', now=NOW + timedelta(seconds=5))
+        self.assertEqual([row['object_ref'] for row in self.ledger.holds()], ['C-2', 'C-3'])
+
 
 if __name__ == '__main__':
     unittest.main()

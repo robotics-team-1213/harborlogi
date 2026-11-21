@@ -92,6 +92,7 @@ Harbor는 ROSY 코드를 import하지 않고 ROSY 계층 꼭대기 관제(현장
 | [docs/observation-acceptance.md](docs/observation-acceptance.md) | 물리 관측 연동의 수용 조건 |
 | [docs/implementation-plan.md](docs/implementation-plan.md) | 실행 연결 계획 |
 | [docs/adr/](docs/adr/) | 설계 결정 기록 (0001 공정 binding과 완료 근거, 0002 고정 소스 Fleet 계약 시험, 0003 Harbor가 가진 Fleet 계약 시험 하네스, 0004 도메인 중립 ROSY 위의 항만 앱 경계(제안), 0005 Harbor·ROSY 책임 지도, 0018 꼭대기 관제 하나로 연결, 0019 컨테이너 사건 이력, 0021 R 옆 운영 PC에 Compose 설치, 0027 Rosy 계정 로그인) |
+| [자동 운전 상황판 설계](docs/design/35-control-dashboard.md) | 목표 화면·상태·오늘 일정·연동 전 목록, [역할표](docs/design/34-role-scenario-access-and-menus.md), ADR 제안 [0034](docs/adr/0034-automatic-operation-permission.md)·[0035](docs/adr/0035-operating-terms-and-yard-display.md)·[0036](docs/adr/0036-human-review-of-rosy-recognition.md) (미수락) |
 | [docs/plans/](docs/plans/) | 작업 계획 (2026-10-21 항만 앱 분할) |
 | [docs/validation/](docs/validation/) | 날짜별 검증 기록 |
 

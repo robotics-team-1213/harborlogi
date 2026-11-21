@@ -18,14 +18,14 @@ class AccessFallbackTests(TestCase):
         self.login('viewer')
         response = self.client.get('/settings/')
         self.assertEqual(response.status_code, 403)
-        self.assertContains(response, '<a href="/">운영 현황으로 돌아가기</a>', status_code=403, html=False)
+        self.assertContains(response, '<a href="/">상황판으로 돌아가기</a>', status_code=403, html=False)
 
-    def test_field_only_returns_to_field(self):
+    def test_field_only_returns_to_alerts(self):
         self.login('field')
         response = self.client.get('/requests/')
         self.assertEqual(response.status_code, 403)
-        self.assertContains(response, '<a href="/field/">현장 확인으로 돌아가기</a>', status_code=403)
-        self.assertNotContains(response, '운영 현황으로 돌아가기', status_code=403)
+        self.assertContains(response, '<a href="/alerts/">처리할 것으로 돌아가기</a>', status_code=403)
+        self.assertNotContains(response, '상황판으로 돌아가기', status_code=403)
 
     def test_no_role_user_gets_role_notice(self):
         self.login()
@@ -33,7 +33,7 @@ class AccessFallbackTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertContains(response, '역할이 아직 없습니다', status_code=403)
         self.assertContains(response, 'href="/accounts/password_change/"', status_code=403)
-        self.assertNotContains(response, '운영 현황으로 돌아가기', status_code=403)
+        self.assertNotContains(response, '상황판으로 돌아가기', status_code=403)
 
     def test_account_admin_link_needs_staff(self):
         self.login('admin')

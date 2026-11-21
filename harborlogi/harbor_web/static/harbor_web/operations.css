@@ -208,3 +208,53 @@ button.slot-level[aria-pressed=true] {outline:3px solid var(--primitive-color-or
 .strip-estop {margin-left:auto}
 .strip-estop-btn {min-height:var(--primitive-size-control);padding:var(--primitive-space-1) var(--primitive-space-3);font-size:var(--primitive-font-label)}
 @media (max-width:900px) {.status-strip {margin-left:0;padding:var(--primitive-space-2) var(--primitive-space-4)} .strip-estop {margin-left:0}}
+/* Help role cards and support fold (WP13) */
+.help-cards {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));gap:var(--primitive-space-4);margin-bottom:var(--primitive-space-6)}
+.help-card.is-mine {border-color:var(--semantic-border-selected);background:var(--primitive-color-teal-50)}
+.help-card .panel-h h2 {margin:0;font-size:var(--primitive-font-section)}
+.help-steps {margin:0 0 var(--primitive-space-3);padding-left:var(--primitive-space-6);display:grid;gap:var(--primitive-space-2)}
+.help-card .panel-b .muted:last-child {margin-bottom:0;font-size:var(--primitive-font-label)}
+.fold {background:var(--semantic-surface-panel);border:1px solid var(--semantic-border-divider);border-radius:var(--primitive-radius-panel);padding:var(--primitive-space-3) var(--primitive-space-4)}
+.fold > summary {min-height:var(--primitive-size-control)}
+
+/* Work hub: saved times for completed work, order only for upcoming work. */
+.work-hub {display:grid;gap:var(--primitive-space-4);min-width:0}
+.work-hub h2 {margin:0;font-size:var(--primitive-font-section)}
+.work-hub .helptext {max-width:none}
+.work-timeline {display:flex;gap:var(--primitive-space-3);overflow-x:auto;list-style:none;margin:var(--primitive-space-4) 0;padding:var(--primitive-space-1)}
+.work-item {flex:0 0 13rem;display:grid;gap:var(--primitive-space-2);padding:var(--primitive-space-3);border:1px solid var(--semantic-border-divider);border-radius:var(--primitive-radius-control);overflow-wrap:anywhere}
+.work-item time {font-variant-numeric:tabular-nums;color:var(--semantic-text-secondary)}
+.work-state {font-size:var(--primitive-font-label);font-weight:600}
+.work-waiting .work-state {color:var(--semantic-text-secondary)}
+.work-running .work-state {color:var(--primitive-color-teal-dark)}
+.work-done .work-state {color:var(--semantic-status-success-foreground)}
+.work-attention .work-state {color:var(--primitive-color-danger-ink)}
+.work-item.work-running {background:var(--primitive-color-teal-soft);border-color:var(--primitive-color-teal-dark)}
+.work-item.work-done {background:var(--semantic-surface-canvas)}
+.work-flow {display:flex;flex-wrap:wrap;gap:var(--primitive-space-3);list-style:none;margin:0;padding:0;counter-reset:none}
+.work-flow li {display:grid;gap:var(--primitive-space-1);max-width:100%;overflow-wrap:anywhere}
+.work-chip {display:flex;flex-wrap:wrap;align-items:center;gap:var(--primitive-space-2);padding:var(--primitive-space-2) var(--primitive-space-3);border:1px solid var(--semantic-border-divider);border-radius:var(--primitive-radius-control)}
+.work-flow small {color:var(--semantic-text-secondary)}
+.work-inbound {list-style:none;margin:0;padding:0}
+.work-inbound li {display:flex;flex-wrap:wrap;gap:var(--primitive-space-2) var(--primitive-space-4);padding-block:var(--primitive-space-3);border-bottom:1px solid var(--semantic-border-divider);overflow-wrap:anywhere}
+.work-inbound li:last-child {border-bottom:0}
+.work-hub a {min-height:44px;display:inline-flex;align-items:center;overflow-wrap:anywhere;max-width:100%}
+.work-auto {display:block}
+.work-auto > summary {padding:var(--primitive-space-4);font-weight:600;cursor:pointer}
+.work-auto > .panel-b {border-top:1px solid var(--semantic-border-divider)}
+.work-flow.is-edit [data-order][data-running="0"] .work-chip {cursor:grab}
+.work-flow [data-order].is-dragging {opacity:.55}
+.work-flow [data-order].is-drop-before {box-shadow:inset 3px 0 0 var(--semantic-border-selected)}
+.work-flow [data-order].is-drop-after {box-shadow:inset -3px 0 0 var(--semantic-border-selected)}
+.wk-result {margin-top:var(--primitive-space-3);padding:var(--primitive-space-3) var(--primitive-space-4);border-left:3px solid var(--semantic-border-divider);background:var(--semantic-surface-canvas);display:grid;gap:var(--primitive-space-2)}
+.wk-result.is-good {border-left-color:var(--semantic-status-success-foreground)}
+.wk-result.is-critical {border-left-color:var(--semantic-status-danger-foreground);background:var(--semantic-status-danger-background)}
+.wk-result-row {display:flex;flex-wrap:wrap;align-items:center;gap:var(--primitive-space-2)}
+/* Intake comparison popup & review layout (WP14) */
+.intake-panes {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--primitive-space-4);margin:var(--primitive-space-4) 0}
+.intake-attest-form {display:grid;gap:var(--primitive-space-3);margin:var(--primitive-space-4) 0;padding:var(--primitive-space-4);background:var(--semantic-surface-panel);border:1px solid var(--semantic-border-divider);border-radius:var(--primitive-radius-panel)}
+.intake-check {display:flex;align-items:center;gap:var(--primitive-space-2);font-weight:600}
+.intake-dialog {width:min(72rem,94vw);max-height:90vh;padding:var(--primitive-space-4);border:1px solid var(--semantic-border-divider);border-radius:var(--primitive-radius-panel);background:var(--semantic-surface-canvas);color:var(--semantic-text-primary)}
+.intake-dialog-head {display:flex;align-items:center;justify-content:space-between;gap:var(--primitive-space-3);margin-bottom:var(--primitive-space-3)}
+.intake-dialog-head h2 {margin:0;font-size:var(--primitive-font-section)}
+@media (max-width:760px) {.intake-panes {grid-template-columns:minmax(0,1fr)}}

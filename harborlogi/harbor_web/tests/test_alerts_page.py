@@ -1,12 +1,21 @@
-import re
+from contextlib import closing
 from datetime import timedelta
+import os
+from pathlib import Path
+import re
+import sqlite3
+import tempfile
+from unittest.mock import patch
 
 from django.contrib.auth.models import Group, User
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
+from harbor.departure import DepartureLedger, record_release
 from harbor_web import access, services
-from harbor_web.models import Audit, Command, FieldEpisode, Observation, Order, Plan
+from harbor_web.alert_pages import release_overdue_minutes
+from harbor_web.models import Audit, Command, DepartureIntent, FieldEpisode, Observation, Order, Plan
 from harbor_web.tests import test_services as fixtures
 
 
@@ -158,3 +167,102 @@ class AlertsPageTests(TestCase):
             self.assertEqual(self.open(user).status_code, 200)
             self.assertEqual(self.client.post('/alerts/', {'action': 'resolve', 'command': command.pk}).status_code, 405)
         self.assertEqual(before, [list(model.objects.values()) for model in models])
+
+    def _open_episode(self, *, vehicle_id='v-release', age=timedelta(0)):
+        code = 'IN-C'
+        cargo = self.cargo(code)
+        self.observation(code=code)
+        order = self.order(cargo, kind='INBOUND', sequence=Order.objects.count() + 1)
+        episode = FieldEpisode.objects.create(order=order, assigned_to=self.field, vehicle_id=vehicle_id,
+                                              created_by=self.operator, state='OPEN')
+        if age:
+            FieldEpisode.objects.filter(pk=episode.pk).update(created_at=timezone.now() - age)
+            episode.refresh_from_db()
+        return episode
+
+    def test_open_episode_under_ten_minutes_stays_waiting(self):
+        now = timezone.now()
+        episode = self._open_episode(vehicle_id='v-fresh')
+        FieldEpisode.objects.filter(pk=episode.pk).update(created_at=now - timedelta(minutes=9, seconds=59))
+        with patch.dict(os.environ, {'HARBOR_RELEASE_OVERDUE_MINUTES': '', 'HARBOR_LEDGER_PATH': ''}), \
+                patch('harbor_web.alert_pages.timezone.now', return_value=now):
+            response = self.open()
+        self.assertContains(response, 'IN-C · 적재면 확인 대기')
+        self.assertContains(response, '차량 v-fresh')
+        self.assertNotContains(response, 'ROSY 사건이 안 옴')
+
+    def test_open_episode_overdue_without_release_shows_emergency_message(self):
+        now = timezone.now()
+        episode = self._open_episode(vehicle_id='v-overdue')
+        FieldEpisode.objects.filter(pk=episode.pk).update(created_at=now - timedelta(minutes=10))
+        with patch.dict(os.environ, {'HARBOR_RELEASE_OVERDUE_MINUTES': '', 'HARBOR_LEDGER_PATH': ''}), \
+                patch('harbor_web.alert_pages.timezone.now', return_value=now):
+            response = self.open()
+        self.assertContains(response, 'IN-C · ROSY 사건이 안 옴 → 비상 적재면 확인')
+        self.assertContains(response, '차량 v-overdue · 10분 경과')
+        content = response.content.decode().split('id="alerts-page"', 1)[1]
+        visible = re.sub(r'<[^>]+>', '', content)
+        self.assertNotRegex(visible, r'관측|원본|인계|대조|회차|#\d+|READY|HOLD|BLOCKED')
+
+    def test_custom_release_overdue_minutes_setting_and_env_are_respected(self):
+        now = timezone.now()
+        episode = self._open_episode(vehicle_id='v-custom')
+        FieldEpisode.objects.filter(pk=episode.pk).update(created_at=now - timedelta(minutes=6))
+
+        with patch.dict(os.environ, {'HARBOR_RELEASE_OVERDUE_MINUTES': '', 'HARBOR_LEDGER_PATH': ''}), \
+                override_settings(HARBOR_RELEASE_OVERDUE_MINUTES=5), \
+                patch('harbor_web.alert_pages.timezone.now', return_value=now):
+            self.assertEqual(release_overdue_minutes(), 5.0)
+            self.assertContains(self.open(), 'ROSY 사건이 안 옴 → 비상 적재면 확인')
+
+        with patch.dict(os.environ, {'HARBOR_RELEASE_OVERDUE_MINUTES': '15', 'HARBOR_LEDGER_PATH': ''}), \
+                override_settings(HARBOR_RELEASE_OVERDUE_MINUTES=5), \
+                patch('harbor_web.alert_pages.timezone.now', return_value=now):
+            self.assertEqual(release_overdue_minutes(), 15.0)
+            response = self.open()
+            self.assertContains(response, '적재면 확인 대기')
+            self.assertNotContains(response, 'ROSY 사건이 안 옴')
+
+        for invalid in ('abc', '0', '-2', 'nan', 'inf'):
+            with patch.dict(os.environ, {'HARBOR_RELEASE_OVERDUE_MINUTES': invalid}):
+                self.assertEqual(release_overdue_minutes(), 10.0)
+
+    def test_recorded_release_permit_in_ledger_or_intent_suppresses_overdue(self):
+        now = timezone.now()
+        episode = self._open_episode(vehicle_id='v-ledger')
+        FieldEpisode.objects.filter(pk=episode.pk).update(created_at=now - timedelta(minutes=15))
+        episode.refresh_from_db()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger_path = Path(tmp) / 'ledger.sqlite3'
+            ledger = DepartureLedger(ledger_path)
+            with closing(sqlite3.connect(ledger_path)) as conn, conn:
+                # Older permit or another vehicle's permit must not suppress this arrival.
+                record_release(conn, dict(event_id='a' * 64, vehicle_id='v-ledger',
+                                          observed_at=episode.created_at - timedelta(seconds=1)))
+                record_release(conn, dict(event_id='b' * 64, vehicle_id='v-other', observed_at=now))
+            with patch.dict(os.environ, {'HARBOR_LEDGER_PATH': str(ledger_path), 'HARBOR_RELEASE_OVERDUE_MINUTES': ''}), \
+                    patch('harbor_web.alert_pages.timezone.now', return_value=now):
+                self.assertContains(self.open(), 'ROSY 사건이 안 옴 → 비상 적재면 확인')
+
+                with closing(sqlite3.connect(ledger_path)) as conn, conn:
+                    record_release(conn, dict(event_id='c' * 64, vehicle_id='v-ledger',
+                                              observed_at=episode.created_at))
+                resp_permitted = self.open()
+                self.assertContains(resp_permitted, '적재면 확인 대기')
+                self.assertNotContains(resp_permitted, 'ROSY 사건이 안 옴')
+
+                # Spending the permit (PERMITTED -> AUTHORIZED) must still suppress the overdue alert.
+                self.assertEqual(ledger.authorize('v-ledger', since=episode.created_at), 'c' * 64)
+                resp_authorized = self.open()
+                self.assertContains(resp_authorized, '적재면 확인 대기')
+                self.assertNotContains(resp_authorized, 'ROSY 사건이 안 옴')
+
+        # Recorded DepartureIntent.release_event_id also suppresses even without HARBOR_LEDGER_PATH.
+        DepartureIntent.objects.create(episode=episode, release_event_id='d' * 64,
+                                       vehicle_id=episode.vehicle_id, cargo=episode.order.cargo)
+        with patch.dict(os.environ, {'HARBOR_LEDGER_PATH': '', 'HARBOR_RELEASE_OVERDUE_MINUTES': ''}), \
+                patch('harbor_web.alert_pages.timezone.now', return_value=now):
+            resp_intent = self.open()
+            self.assertContains(resp_intent, '적재면 확인 대기')
+            self.assertNotContains(resp_intent, 'ROSY 사건이 안 옴')

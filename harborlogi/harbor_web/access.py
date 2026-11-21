@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 PERSONAS = {'operator': '업무 담당', 'field': '현장 확인', 'admin': '설치·운영 관리', 'viewer': '조회'}
-NAV_GROUPS = (('work', '업무 처리'), ('evidence', '현황·기록'), ('field', '현장'), ('admin', '관리'), ('help', '도움말'))
+NAV_GROUPS = (('main', '주 메뉴'),)
 
 
 @dataclass(frozen=True)
@@ -15,6 +15,7 @@ class Page:
     roles: frozenset
     group: str | None = None
     utility: bool = False
+    menu_roles: frozenset | None = None
 
 
 READ = frozenset({'viewer', 'operator', 'admin'})
@@ -23,17 +24,18 @@ ADMIN = frozenset({'admin'})
 EVERYONE = frozenset({'viewer', 'operator', 'field', 'admin'})
 
 PAGES = (
-    Page('alerts', '/alerts/', '처리할 것', '예외와 현장 배정', EVERYONE),
-    Page('overview', '/', '운영 현황', '조치가 필요한 업무', READ, 'work'),
-    Page('outbound', '/outbound/', '반출 관제', '우선순위·재취급 계획', READ, 'work'),
-    Page('cargo', '/requests/', '화물·요청', '화물 등록과 업무 지시', READ, 'work'),
-    Page('work', '/work/', '실행·대조', '인계 상태와 원본 근거', READ, 'work'),
-    Page('rearrangement', '/rearrangement/', '자동 재배치', '허용 범위와 실행 기록', READ, 'work'),
-    Page('inventory', '/inventory/', '야드 현황', '자리별 컨테이너와 설치 기준', READ, 'evidence'),
-    Page('records', '/records/', '기록·검증', '이력과 비교 결과', READ, 'evidence'),
-    Page('field', '/field/', '현장 확인', '회차별 사실 확인', frozenset({'operator', 'field', 'admin'}), 'field'),
-    Page('settings', '/settings/', '설정·계정', '팀 역할과 구역 맵', ADMIN, 'admin', True),
-    Page('workflow', '/workflow/', '업무 안내', '역할과 처리 순서', EVERYONE, 'help', True),
+    Page('overview', '/', '상황판', '지금 상태와 오늘 처리량', READ, 'main'),
+    Page('work', '/work/', '작업', '오늘 시간표와 반출 순서', READ, 'main'),
+    Page('inventory', '/inventory/', '야드', '자리별 배치와 남은 예정', EVERYONE, 'main'),
+    Page('alerts', '/alerts/', '처리할 것', '예외와 현장 확인', EVERYONE, 'main',
+         menu_roles=frozenset({'operator', 'field', 'admin'})),
+    Page('records', '/records/', '기록', '사건 기록과 시험 비교', READ, 'main'),
+    Page('settings', '/settings/', '설정', '계정 역할과 설치 기준', ADMIN, 'main', True),
+    Page('workflow', '/workflow/', '도움말', '역할별 할 일 안내', EVERYONE, 'main', True),
+    Page('outbound', '/outbound/', '반출 관제', '우선순위·재취급 계획', READ),
+    Page('cargo', '/requests/', '화물·요청', '화물 등록과 업무 지시', READ),
+    Page('rearrangement', '/rearrangement/', '자동 재배치', '허용 범위와 실행 기록', READ),
+    Page('field', '/field/', '현장 확인', '회차별 사실 확인', frozenset({'operator', 'field', 'admin'})),
     Page('cargo_list', '/cargo/', '화물 목록', '', READ),
     Page('cargo_new', '/cargo/new/', '화물 등록', '', OPERATE),
     Page('request_new', '/requests/new/', '요청 등록', '', OPERATE),
@@ -57,11 +59,15 @@ def can_open(user_roles: Iterable[str], key: str) -> bool:
     return bool(page(key).roles.intersection(user_roles))
 
 
+def visible_in_menu(p: Page, user_roles: Iterable[str]) -> bool:
+    return bool((p.menu_roles or p.roles).intersection(user_roles))
+
+
 def nav_groups(user_roles: Iterable[str]) -> list:
     held = set(user_roles)
     groups = []
     for key, label in NAV_GROUPS:
-        items = [p for p in MENU_PAGES if p.group == key and p.roles & held]
+        items = [p for p in MENU_PAGES if p.group == key and visible_in_menu(p, held)]
         if items:
             groups.append({'key': key, 'label': label, 'items': items})
     return groups

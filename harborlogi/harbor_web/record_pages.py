@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_http_methods
 from harbor_web import forms, services
 from harbor_web.auth import require_roles
+from harbor_web.record_text import OBJECT_LABELS, record_text
 from harbor_web.models import Audit, Command, DepartureIntent, FieldConfirmation, FieldEpisode, Measurement, Order, Plan
 from harbor_web.views import form_page, page, paginate
 
@@ -50,10 +51,14 @@ def records(request):
         items = items.filter(object_type=object_type)
     if q:
         items = items.filter(object_id=q) if object_type else items.none()
+    pagination = paginate(request, items)
+    for item in pagination['page']:
+        item.sentence = record_text(item.action)
+        item.target_label = OBJECT_LABELS.get(item.object_type, '기타')
     return page(request, 'records.html', section='records', q=q, object_type=object_type,
-                object_types=object_types, order_scope=order_scope,
-                scope_warning='ID로 찾으려면 기록 종류를 함께 선택하세요.' if q and not object_type else '',
-                **paginate(request, items))
+                object_types=[(value, OBJECT_LABELS[value]) for value in object_types], order_scope=order_scope,
+                scope_warning='번호로 찾으려면 대상 종류를 함께 선택하세요.' if q and not object_type else '',
+                **pagination)
 
 
 @require_roles('operator')

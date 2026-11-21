@@ -1,3 +1,36 @@
-{% extends 'base.html' %}{% block title %}기록·검증{% endblock %}{% block content %}<div class="page-head"><div><h1>기록·검증</h1><p>누가 어떤 원본으로 판단했는지 찾아봅니다.</p></div></div><nav class="tabs" aria-label="기록·검증"><a href="/records/" aria-current="page">업무 변경 기록</a><a href="/records/compare/">조건별 비교</a></nav>
-{% if scope_warning %}<div class="notice">{{ scope_warning }}</div>{% endif %}{% if order_scope %}<p>요청 #{{ order_scope.pk }}와 연결된 계획·실행·현장 기록만 표시합니다. <a href="/requests/{{ order_scope.pk }}/">원래 요청</a> · <a href="/records/">범위 해제</a></p>{% endif %}<form class="toolbar" method="get">{% if order_scope %}<input type="hidden" name="order" value="{{ order_scope.pk }}">{% endif %}<label>대상 종류<select name="object_type"><option value="">전체</option>{% for value in object_types %}<option value="{{ value }}" {% if object_type == value %}selected{% endif %}>{{ value }}</option>{% endfor %}</select></label><label>대상 ID<input name="q" value="{{ q }}" maxlength="96"></label><button type="submit" class="quiet">찾기</button></form>
-{% if page %}<div class="table-wrap"><table><caption>변경 기록 {{ page.paginator.count }}건</caption><thead><tr><th scope="col">시각·행위자</th><th scope="col">행위</th><th scope="col">대상</th><th scope="col">참조</th></tr></thead><tbody>{% for item in page %}<tr><td>{{ item.created_at|date:'Y-m-d H:i:s' }}<small>{{ item.actor.username|default:'시스템' }}</small></td><td>{{ item.action }}</td><td>{{ item.object_type }} #{{ item.object_id }}</td><td>{% if item.object_type == 'Order' %}<a href="/requests/{{ item.object_id }}/">원래 요청</a>{% elif item.object_type == 'Plan' %}<a href="/plans/{{ item.object_id }}/">검토한 계획</a>{% elif item.object_type == 'Command' %}<a href="/work/{{ item.object_id }}/">실행 인계</a>{% elif item.object_type == 'FieldEpisode' and can_operate or item.object_type == 'FieldEpisode' and can_admin %}<a href="/field/{{ item.object_id }}/">현장 회차</a>{% elif item.object_type == 'Observation' %}<a href="/inventory/?observation={{ item.object_id }}">관측 원본</a>{% elif item.object_type == 'Cargo' %}<a href="/cargo/{{ item.object_id }}/footprint/">화물 크기·이력</a>{% else %}원본 보존{% endif %}{% if item.detail %}<details><summary>변경 내용과 참조</summary>{% if item.object_type == 'Order' and item.detail.after %}{% include 'request_change.html' with before=item.detail.before after=item.detail.after %}{% else %}{{ item.detail }}{% endif %}</details>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% include 'pagination.html' %}{% else %}<div class="empty"><h2>해당하는 변경 기록이 없습니다</h2><p>입력·계획·현장 확인·실행 대조가 저장되면 여기에서 추적할 수 있습니다.</p></div>{% endif %}{% endblock %}
+{% extends 'base.html' %}
+{% block title %}기록{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>기록</h1></div></div>
+<nav class="tabs" aria-label="기록"><a href="/records/" aria-current="page">사건 기록</a><a href="/records/compare/">시험 비교</a></nav>
+{% if scope_warning %}<div class="notice">{{ scope_warning }}</div>{% endif %}
+{% if order_scope %}<p>선택한 업무와 연결된 계획·실행·현장 기록만 표시합니다. <a href="/requests/{{ order_scope.pk }}/">업무 보기</a> · <a href="/records/">범위 해제</a></p>{% endif %}
+<form class="toolbar" method="get">
+  {% if order_scope %}<input type="hidden" name="order" value="{{ order_scope.pk }}">{% endif %}
+  <label>대상 종류<select name="object_type"><option value="">전체</option>{% for value, label in object_types %}<option value="{{ value }}" {% if object_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+  <label>대상 번호<input name="q" value="{{ q }}" maxlength="96"></label><button type="submit" class="quiet">찾기</button>
+</form>
+{% if page %}
+<div class="table-wrap"><table>
+  <caption>사건 기록 {{ page.paginator.count }}건</caption>
+  <thead><tr><th scope="col">시각·행위자</th><th scope="col">내용</th><th scope="col">대상</th><th scope="col">자세히</th></tr></thead>
+  <tbody>{% for item in page %}<tr>
+    <td>{{ item.created_at|date:'Y-m-d H:i:s' }}<small>{{ item.actor.username|default:'시스템' }}</small></td>
+    <td>{{ item.sentence }}</td>
+    <td>{{ item.target_label }}
+      {% if item.object_type == 'Order' %}<a href="/requests/{{ item.object_id }}/">업무 보기</a>
+      {% elif item.object_type == 'Plan' %}<a href="/plans/{{ item.object_id }}/">계획 보기</a>
+      {% elif item.object_type == 'Command' %}<a href="/work/{{ item.object_id }}/">실행 보기</a>
+      {% elif item.object_type == 'FieldEpisode' and can_operate or item.object_type == 'FieldEpisode' and can_admin %}<a href="/field/{{ item.object_id }}/">현장 업무 보기</a>
+      {% elif item.object_type == 'Observation' %}<a href="/inventory/?observation={{ item.object_id }}">야드 현황 보기</a>
+      {% elif item.object_type == 'Cargo' %}<a href="/cargo/{{ item.object_id }}/footprint/">화물 크기·이력</a>{% endif %}
+    </td>
+    <td><details><summary>자세히(지원 담당자용)</summary>
+      <dl><dt>행위</dt><dd>{{ item.action }}</dd><dt>대상</dt><dd>{{ item.object_type }} #{{ item.object_id }}</dd><dt>원문</dt><dd>{{ item.detail }}</dd></dl>
+      {% if item.object_type == 'Order' and item.detail.after %}{% include 'request_change.html' with before=item.detail.before after=item.detail.after %}{% endif %}
+    </details></td>
+  </tr>{% endfor %}</tbody>
+</table></div>
+{% include 'pagination.html' %}
+{% else %}<div class="empty"><h2>해당하는 사건 기록이 없습니다</h2></div>{% endif %}
+{% endblock %}

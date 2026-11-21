@@ -53,7 +53,7 @@ class TopviewProxyTests(TestCase):
         self.assertEqual(self.client.get(self.url).status_code, 302)
         self.client.force_login(self.user)
         for role, status in (('viewer', 200), ('operator', 200), ('admin', 200),
-                             ('field', 403), (None, 403)):
+                             ('field', 200), (None, 403)):
             with self.subTest(role=role):
                 self.user.groups.clear()
                 if role is not None:

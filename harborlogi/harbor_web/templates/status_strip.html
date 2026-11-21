@@ -33,6 +33,7 @@
   <span class="strip-item strip-equipment">
     <span class="strip-pill tone-neutral">{{ status_strip.equipment_label }}</span>
   </span>
+  <span class="strip-item strip-executor"><span class="strip-pill tone-{{ status_strip.executor_tone }}">{{ status_strip.executor_label }}</span></span>
   <span class="strip-item strip-estop">
     <button type="button" class="strip-estop-btn" disabled aria-disabled="true">비상 정지</button>
     <span class="strip-note">{{ status_strip.estop_note }}</span>

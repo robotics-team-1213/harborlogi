@@ -4,7 +4,6 @@ import sqlite3
 from django import forms
 from django.contrib import messages
 from django.core.exceptions import ValidationError
-from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.http import Http404
 from django.views.decorators.http import require_http_methods
@@ -13,9 +12,9 @@ from harbor.ledger import ReadOnlyLedger
 from harbor_web import commands, human_evidence, services
 from harbor_web.auth import has_role, require_roles
 from harbor_web.models import Command, Plan
-from harbor_web.pipeline import COMMAND_LABELS, pipeline_for
+from harbor_web.pipeline import pipeline_for
 from harbor_web.presentation import reason_text
-from harbor_web.views import page, paginate, selected_observation
+from harbor_web.views import page, selected_observation
 
 
 class CommandForm(forms.Form):
@@ -68,14 +67,15 @@ def plan_detail(request, pk):
             raise PermissionDenied
         if request.POST.get('action') == 'decide':  # a person accepts the algorithm's inbound placement (ADR 0012)
             from django.contrib import messages
-            from harbor_web.inbound_decision import decide_placement
-            version = request.POST.get('expected_version', '')
-            if not (version.isascii() and version.isdigit()):
-                return render(request, 'error.html', dict(reason='검토한 revision이 올바르지 않습니다.', return_url=f'/plans/{pk}/'), status=400)
+            from harbor_web.inbound_decision import PlacementDecisionForm, decide_placement
+            decision_form = PlacementDecisionForm(request.POST)
+            if not decision_form.is_valid():
+                return render(request, 'error.html', dict(reason='검토한 지시 버전이나 대안 순번이 올바르지 않습니다.', return_url=f'/plans/{pk}/'), status=400)
             try:
-                decide_placement(request.user, plan_id=pk, expected_version=int(version))
+                decide_placement(request.user, plan_id=pk, expected_version=decision_form.cleaned_data['expected_version'],
+                    alternative_rank=decision_form.cleaned_data['alternative_rank'] or 0)
             except (services.Conflict, ValidationError):
-                return render(request, 'error.html', dict(heading='결정할 수 없습니다', reason='요청이나 계획이 바뀌었습니다. 최신 입고 추천을 다시 확인하세요.', return_url=f'/requests/{plan.order_id}/'), status=409)
+                return render(request, 'error.html', dict(heading='결정할 수 없습니다', reason='요청·계획 또는 선택한 자리의 조건이 맞지 않습니다. 최신 입고 추천을 다시 계산해 확인하세요.', return_url=f'/requests/{plan.order_id}/'), status=409)
             messages.success(request, '입고 위치를 결정했습니다. 실제 이동은 입고 실행 연결과 관측으로 확인합니다.')
             return redirect(f'/plans/{pk}/')
         form = CommandForm(request.POST)
@@ -93,8 +93,7 @@ def plan_detail(request, pk):
         return page(request, 'workspace.html', section='outbound', **workspace_context(plan.order, plan, review_observation=review_observation))
     if plan.result.get('plan_kind') == 'inbound-placement':
         from harbor_web.placement_view import placement_context
-        from harbor_web.inbound_decision import placement_decision
-        return page(request, 'placement_plan.html', section='cargo', decision=placement_decision(plan), **placement_context(plan))
+        return page(request, 'placement_plan.html', section='cargo', **placement_context(plan))
     from harbor_web.yard_scene import present_stage, scene_for
     observation_stage = None
     if plan.observation.payload.get('schema') == 'grid-placement-v1':
@@ -135,16 +134,8 @@ def candidate_preview(request, pk, rank):
 @require_roles('viewer', 'operator', 'admin')
 @require_http_methods(['GET'])
 def work_list(request):
-    q, state = request.GET.get('q', '')[:200], request.GET.get('state', '')
-    items = Command.objects.select_related('plan__order__cargo').order_by('-id')
-    if q:  # A rearrangement order has no cargo code; an empty search must not drop it.
-        items = items.filter(Q(plan__order__cargo__code__icontains=q) | Q(mission_id__icontains=q))
-    if state in dict(Command._meta.get_field('state').choices):
-        items = items.filter(state=state)
-    context = paginate(request, items)
-    for command in context['page']:
-        command.display_state = COMMAND_LABELS.get(command.state, '원래 실행 대조 필요')
-    return page(request, 'work.html', section='work', q=q, state=state, **context)
+    from harbor_web.work_hub import work_hub
+    return work_hub(request)
 
 
 @require_roles('viewer', 'operator', 'admin', 'field')  # same roles as work_detail, which narrows field staff

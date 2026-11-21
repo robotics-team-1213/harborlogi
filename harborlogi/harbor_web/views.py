@@ -58,7 +58,7 @@ def form_page(request, *, form_type, title, section, save, destination, descript
 def overview(request):
     from harbor_web.workspace import plan_changes
     if not has_role(request.user, 'viewer', 'operator', 'admin'):
-        return redirect('/field/')
+        return redirect('/alerts/')
     observation = selected_observation(request, default_latest=True)
     observations = list(Observation.objects.select_related('condition').order_by('-pk')[:100])
     if observation and all(item.pk != observation.pk for item in observations):
@@ -382,7 +382,7 @@ def order_detail(request, pk):
                 review_observation=observation, observation_query=f'observation={observation.pk}' if observation else '')
 
 
-@require_roles('viewer', 'operator', 'admin')
+@require_roles('viewer', 'operator', 'field', 'admin')
 @require_http_methods(['GET'])
 def inventory(request):
     observations = Observation.objects.select_related('condition').order_by('-id')
@@ -409,7 +409,7 @@ def inventory(request):
     from harbor_web.map_config import map_scene
     view = (spatial_yard_view(services.spatial_snapshot(selected)) if selected.payload.get('schema') == 'grid-placement-v1'
             else yard_view(selected.payload['bays'], selected.condition.payload)) if selected else None
-    stage = present_stage(dict(view, panel_id='inventory-yard', label='관측한 배치', index=0), condition.payload) if view else None
+    stage = present_stage(dict(view, panel_id='inventory-yard', label='현재 야드 배치', index=0), condition.payload) if view else None
     scene = scene_for([stage]) if stage else map_scene(condition.payload) if condition else None
     from harbor_web.yard_rows import place_context, placement_text, slot_key, spot_label
     labels, slot = place_context(condition.payload) if condition else ({}, None)
@@ -431,10 +431,11 @@ def inventory(request):
                     place=f"{cell['row']}행 {cell['column']}열 {level}층") for cell in cells)
     placement_rows = [dict(cargo=item['cargo_id'], place=placement_text(item, labels, slot))
                       for item in (selected.payload.get('placements', []) if selected else [])]
+    from harbor_web.yard_pages import yard_page_context
     return page(request, 'inventory.html', section='inventory', observation=selected, observations=choices, topview=topview_context(),
                 condition=condition, condition_filter='condition' in request.GET,
                 conditions=Condition.objects.order_by('-pk'), definition_rows=definition_rows,
-                placement_rows=placement_rows, yard_stage=stage, yard_scene=scene)
+                placement_rows=placement_rows, yard_stage=stage, yard_scene=scene, **yard_page_context(selected))
 
 
 @require_roles('admin')
@@ -446,7 +447,9 @@ def observation_new(request):
 @require_roles('admin')
 @require_http_methods(['GET'])
 def settings_page(request):
-    return page(request, 'settings.html', section='settings', conditions=Condition.objects.order_by('-id'))
+    from harbor_web.role_guide import role_table
+    return page(request, 'settings.html', section='settings',
+                conditions=Condition.objects.order_by('-id'), role_table=role_table())
 
 
 @require_roles('admin')

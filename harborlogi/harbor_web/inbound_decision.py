@@ -4,6 +4,7 @@ The algorithm computes each inbound placement (ADR 0010); a person confirms it h
 over (ADR 0012). A decision is an immutable audit row. It does not move cargo: the yard changes only when an
 observation shows it. Until then the rearrangement preview reads the observed yard plus the decided placements.
 """
+from django import forms
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
@@ -18,14 +19,19 @@ BLOCKED_BY = (('OBSERVATION_NOT_FRESH', '관측 유효 시간 지남 · 새 관�
               ('PLAN_QUEUE_CHANGED', '요청이나 대기열이 바뀜 · 다시 계산 필요'))
 
 
+class PlacementDecisionForm(forms.Form):
+    expected_version = forms.IntegerField(min_value=1)
+    alternative_rank = forms.IntegerField(min_value=0, required=False)
+
+
 def placement_decision(plan):
     return Audit.objects.filter(action=DECIDE_ACTION, object_type='Plan', object_id=str(plan.pk)).select_related('actor').first()
 
 
 @serialized
 @transaction.atomic
-def decide_placement(actor, *, plan_id, expected_version):
-    """Record that a person accepts the latest READY inbound recommendation of its request."""
+def decide_placement(actor, *, plan_id, expected_version, alternative_rank=0):
+    """Pin a saved candidate: rank 0 is the recommendation, 1 onward are alternatives."""
     _role(actor, 'operator')
     plan = Plan.objects.select_related('order', 'observation', 'condition').get(pk=plan_id)
     if plan.result.get('plan_kind') != 'inbound-placement' or plan.result.get('status') != 'READY':
@@ -34,14 +40,26 @@ def decide_placement(actor, *, plan_id, expected_version):
         raise Conflict('The request changed; review its latest plan.')
     if Plan.objects.filter(order=plan.order, pk__gt=plan.pk).exists():
         raise Conflict('A newer plan exists for this request.')
+    alternatives = plan.result.get('alternatives', [])
+    if type(alternative_rank) is not int or not 0 <= alternative_rank <= len(alternatives):
+        raise ValidationError('저장된 대안 순번을 선택하세요.')
+    selected = alternatives[alternative_rank - 1]['placement'] if alternative_rank else plan.result['recommendation']
     existing = placement_decision(plan)
     if existing:
+        if existing.detail['recommendation'] != selected:
+            raise Conflict('The placement has already been decided; calculate a new plan to change it.')
         return existing
     if decision_block(plan.order, plan):  # the decision page hides its button for the same reasons
         raise Conflict('The plan basis changed (request, queue or observation); calculate it again first.')
-    return Audit.objects.create(actor=actor, action=DECIDE_ACTION, object_type='Plan', object_id=str(plan.pk),
+    decision = Audit.objects.create(actor=actor, action=DECIDE_ACTION, object_type='Plan', object_id=str(plan.pk),
         detail=dict(order_id=plan.order_id, order_version=plan.order_version, observation_id=plan.observation_id,
-                    recommendation=plan.result['recommendation'], incoming_shape=plan.result.get('incoming_shape')))
+                    alternative_rank=alternative_rank, recommendation=selected, incoming_shape=plan.result.get('incoming_shape')))
+    from harbor_web import services
+    try:
+        projected_snapshot(services.spatial_snapshot(plan.observation), inbound_progress())
+    except ValueError as error:
+        raise Conflict('The selected placement conflicts with decided inbound cargo; calculate it again.') from error
+    return decision
 
 
 def decision_block(order, plan, *, queue_digest=None):
@@ -83,7 +101,7 @@ def inbound_progress():
 
 
 def projected_snapshot(snapshot, progress):
-    """The observed yard with every decided, not yet observed inbound placed where it was decided."""
+    """Use the placement pinned in each decision, including alternatives and older recommendation-only rows."""
     from harbor.spatial import CargoShape, Placement
     placed = {p.cargo_id for p in snapshot.placements}
     shapes, placements = list(snapshot.shapes), list(snapshot.placements)

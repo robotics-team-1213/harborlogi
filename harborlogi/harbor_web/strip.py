@@ -4,7 +4,7 @@ from datetime import timedelta
 from django.db.models import Max, Subquery
 from django.utils import timezone
 
-from harbor_web import access, services
+from harbor_web import access, executor, services
 from harbor_web.auth import roles
 from harbor_web.models import Audit, Command, FieldEpisode, Observation, Order, Plan
 from harbor_web.order_queue import completed_order_ids
@@ -87,6 +87,8 @@ def _alert_count(request, *, held, can_read, observation, stale, superseded, com
                     total += excluded
         total += sum(1 for c in commands if work_state(c) == '처리할 것')
         total += _unmatched_completed_count(commands)
+        from harbor_web.intake_pages import read_holds
+        total += len(read_holds()[0])
 
     if held & {'operator', 'admin'} or can_read:
         cached = getattr(request, '_open_field_count', None)
@@ -216,6 +218,7 @@ def status_strip(request):
     progress = day_progress(now=now)
     current_job = _current_job(commands=commands, can_read=can_read, now=now)
     yard_updated = timezone.localtime(observation.observed_at).strftime('%H:%M') if observation is not None else None
+    exec_status = executor.status()
     return dict(
         status_strip=dict(
             alert_count=alert_count,
@@ -226,6 +229,9 @@ def status_strip(request):
             yard_updated=yard_updated,
             yard_stale=stale,
             equipment_label='장비 상태 연동 전',
+            executor=exec_status,
+            executor_label=exec_status['label'],
+            executor_tone=exec_status['tone'],
             estop_note='ROSY Fleet에서 정지 · 연동 전',
             state_note='상태는 ROSY 실행 결과로 바뀜',
         )
