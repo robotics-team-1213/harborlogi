@@ -1,11 +1,22 @@
-"""Read-only context for the yard page: open READY plans, move arrows, and inline 3D scenes."""
+"""Read-only context for the yard page: open READY plans, move arrows, and outbound chain 3D."""
+from dataclasses import asdict, replace
+import json
+
+from django.utils import timezone
+
+from harbor.model import OutboundRequest
+from harbor.spatial import plan_spatial
+from harbor_web import services
 from harbor_web.inbound_decision import placement_decision
 from harbor_web.models import Command, Order, Plan
-from harbor_web.order_queue import completed_order_ids
+from harbor_web.order_queue import completed_order_ids, outbound_lanes
+from harbor_web.plan_service import _outbound_schedule
+from harbor_web.tier_simulation import tier_recommendations
 from harbor_web.workspace import _yard_stages
 from harbor_web.yard_occupancy import occupancy_map
-from harbor_web.yard_rows import place_context, placement_text
-from harbor_web.yard_scene import scene_for
+from harbor_web.yard_rows import place_context, placement_text, route_text
+from harbor_web.yard_scene import present_stage, scene_for
+from harbor_web.yard_view import spatial_yard_view
 
 KIND_LABELS = {'OUTBOUND': '반출', 'INBOUND': '입고', 'REARRANGE': '재배치'}
 ACTIVE_COMMAND_STATES = ('DISPATCHING', 'RECONCILED', 'PREPARED')
@@ -40,17 +51,147 @@ def _command_priority(command):
     return (rank, -command.pk)
 
 
+def outbound_chain_replay(observation):
+    """Build one chained multi-frame 3D scene across feasible open OUTBOUND orders (never INBOUND)."""
+    if observation is None or observation.payload.get('schema') != 'grid-placement-v1':
+        return None
+    lanes = outbound_lanes()
+    if not any(lane['orders'] for lane in lanes):
+        return None
+    try:
+        current = services.spatial_snapshot(observation)
+        policy = services.spatial_policy(observation.condition.payload)
+    except ValueError:
+        return None
+    recommendations = tier_recommendations(observation)
+    schedule = _outbound_schedule()
+    now = timezone.now()
+    labels, slot = place_context(observation.condition.payload)
+
+    stages = [present_stage(
+        dict(spatial_yard_view(current), index=0, phase='관측', label='관측한 배치', move=None, panel_id='yard-chain-0'),
+        observation.condition.payload,
+    )]
+    arrows = []
+    chained_codes = []
+    rehandled = set()
+    move_number = 0
+    ranks = dict(schedule)
+
+    for lane in lanes:
+        group = lane['group']
+        placed = {placement.cargo_id for placement in current.placements}
+        rec = recommendations.get(group)
+        if rec is not None:
+            best = rec.get('best') or {}
+            if not best.get('feasible'):
+                break
+            raw_steps = best.get('steps') or ()
+            tier_codes = [
+                getattr(step, 'cargo_id', None) or step['cargo_id']
+                for step in raw_steps
+                if (getattr(step, 'status', None) or step.get('status')) == 'READY'
+            ]
+        else:
+            tier_codes = [order.cargo.code for order in lane['orders'] if order.cargo.code in placed]
+        if not tier_codes:
+            continue
+        tier_ranks = dict(ranks)
+        for pos, code in enumerate(tier_codes):
+            tier_ranks[code] = (group, pos)
+        tier_failed = False
+        for cargo_id in tier_codes:
+            if cargo_id not in {placement.cargo_id for placement in current.placements}:
+                tier_failed = True
+                break
+            proposal = plan_spatial(
+                current, OutboundRequest(cargo_id, current.revision), policy, now=now, schedule=tier_ranks,
+            )
+            if proposal.status != 'READY':
+                tier_failed = True
+                break
+            chained_codes.append(cargo_id)
+            step_blockers = {m.cargo_id for m in proposal.moves if m.phase_label == '재취급'}
+            rehandled.update(step_blockers)
+            for move in proposal.moves:
+                move_number += 1
+                current = current.with_placements(tuple(
+                    move.destination_placement if p.cargo_id == move.cargo_id else p
+                    for p in current.placements
+                ))
+                move_dict = json.loads(json.dumps(asdict(move)))
+                display = dict(
+                    move_dict,
+                    number=move_number,
+                    source_level=move.source_placement.level,
+                    destination_level=move.destination_placement.level,
+                    spatial=True,
+                    route=route_text(move_dict, labels, slot),
+                    source_place=placement_text(move_dict['source_placement'], labels, slot),
+                    destination_place=placement_text(move_dict['destination_placement'], labels, slot),
+                )
+                arrows.append(dict(
+                    number=move_number,
+                    cargo=move.cargo_id,
+                    phase=move.phase_label,
+                    source=display['source_place'],
+                    destination=display['destination_place'],
+                    arm=move.primary_arm,
+                ))
+                stages.append(present_stage(dict(
+                    spatial_yard_view(current, target=cargo_id, blockers=step_blockers),
+                    index=move_number,
+                    phase=move.phase_label,
+                    label=f'{move_number}단계 후 예상 · {cargo_id} {move.phase_label}',
+                    move=display,
+                    panel_id=f'yard-chain-{move_number}',
+                ), observation.condition.payload))
+            # Clear the retrieved target from the outbound stand before planning the next container.
+            current = replace(
+                current,
+                shapes=tuple(shape for shape in current.shapes if shape.cargo_id != cargo_id),
+                placements=tuple(placement for placement in current.placements if placement.cargo_id != cargo_id),
+            )
+            tier_ranks.pop(cargo_id, None)
+            ranks.pop(cargo_id, None)
+        if tier_failed:
+            break
+
+    if len(chained_codes) < 2 or move_number == 0:
+        return None
+    scene = scene_for(stages)
+    if scene is None:
+        return None
+    scene['kind'] = 'outbound-chain'
+    scene['rehandle'] = sorted(rehandled)
+    scene['arrows'] = arrows
+    scene['title'] = '남은 반출 연쇄 3D'
+    scene['order'] = chained_codes
+    return dict(
+        key='outbound-chain',
+        scene_id='upcoming-scene-outbound-chain',
+        title='남은 반출 연쇄 3D',
+        kind='OUTBOUND_CHAIN',
+        kind_label='반출 연쇄',
+        cargo_codes=chained_codes,
+        summary=f"{' → '.join(chained_codes)} · 총 {move_number}회 이동",
+        stages=stages,
+        scene=scene,
+        arrows=arrows,
+    )
+
+
 def yard_page_context(observation):
-    """Build upcoming READY plans and current move arrows for one selected observation."""
+    """Build upcoming READY plans, outbound chain replay, and current move arrows for one observation."""
     if observation is None:
-        return dict(upcoming=[], active_arrows=[], active_upcoming=None)
+        return dict(upcoming=[], active_arrows=[], active_upcoming=None, outbound_chain=None)
     open_orders = list(
         Order.objects.exclude(pk__in=completed_order_ids())
         .select_related('cargo')
         .order_by('priority_group', 'sequence', 'pk')
     )
     if not open_orders:
-        return dict(upcoming=[], active_arrows=[], active_upcoming=None)
+        return dict(upcoming=[], active_arrows=[], active_upcoming=None, outbound_chain=None)
     order_ids = [order.pk for order in open_orders]
     latest_plans = {}
     for plan in (
@@ -132,4 +273,10 @@ def yard_page_context(observation):
         else None
     )
     active_arrows = active_upcoming['arrows'] if active_upcoming else []
-    return dict(upcoming=upcoming, active_arrows=active_arrows, active_upcoming=active_upcoming)
+    outbound_chain = outbound_chain_replay(observation)
+    return dict(
+        upcoming=upcoming,
+        active_arrows=active_arrows,
+        active_upcoming=active_upcoming,
+        outbound_chain=outbound_chain,
+    )

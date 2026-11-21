@@ -65,6 +65,15 @@
       <span class="scope">준비된 계획 {{ upcoming|length }}건</span>
     </div>
     <div class="panel-b">
+      {% if outbound_chain %}
+      <div class="yard-chain-action">
+        <button type="button" class="yard-upcoming-btn yard-chain-btn" data-upcoming-plan="outbound-chain" data-upcoming-scene="upcoming-scene-outbound-chain" aria-pressed="false">
+          <span class="chip tone-info">{{ outbound_chain.kind_label }}</span>
+          <span class="yard-upcoming-main"><strong>남은 반출 연쇄 3D</strong><small>{{ outbound_chain.summary }}</small></span>
+        </button>
+        {{ outbound_chain.scene|json_script:'upcoming-scene-outbound-chain' }}
+      </div>
+      {% endif %}
       {% if upcoming %}
       <ul class="yard-upcoming-list">
         {% for item in upcoming %}
@@ -84,7 +93,7 @@
         </li>
         {% endfor %}
       </ul>
-      {% else %}
+      {% elif not outbound_chain %}
       <p class="helptext yard-upcoming-empty">준비된 남은 예정이 없습니다.</p>
       {% endif %}
     </div>

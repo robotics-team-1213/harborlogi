@@ -10,7 +10,7 @@ from django.utils import timezone
 from harbor_web import rearrangement, services
 from harbor_web.models import Cargo, CargoFootprint, Command, Order, Plan
 from harbor_web.tests.test_control_board import site_policy
-from harbor_web.yard_pages import yard_page_context
+from harbor_web.yard_pages import outbound_chain_replay, yard_page_context
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -58,7 +58,11 @@ class YardPageTests(TestCase):
         self.client.force_login(self.operator)
 
     def test_empty_observation_returns_empty_yard_page_context(self):
-        self.assertEqual(yard_page_context(None), dict(upcoming=[], active_arrows=[], active_upcoming=None))
+        self.assertEqual(
+            yard_page_context(None),
+            dict(upcoming=[], active_arrows=[], active_upcoming=None, outbound_chain=None),
+        )
+        self.assertIsNone(outbound_chain_replay(None))
 
     def test_outbound_rearrange_inbound_plans_and_filters(self):
         outbound = services.create_order(
@@ -237,6 +241,101 @@ class YardPageTests(TestCase):
         self.assertIn('data-yard-stage="1"', html)
         self.assertIn('id="yard-scene-data"', html)
         self.assertIsNone(re.search(r'\sstyle=', html))
+
+    def test_outbound_chain_replay_chains_multi_order_outbound_and_excludes_inbound(self):
+        # Tier 1: K1 (buried under K2) then K2; Tier 2: K3; plus one open INBOUND order (N1).
+        # tier_recommendations recommends K2 -> K1 in tier 1 (0 rehandles), then tier 2 chains K3.
+        services.create_order(
+            self.operator, cargo=Cargo.objects.get(code='K1'), kind='OUTBOUND',
+            priority_group=1, sequence=1, tie_policy='FIXED',
+        )
+        services.create_order(
+            self.operator, cargo=Cargo.objects.get(code='K2'), kind='OUTBOUND',
+            priority_group=1, sequence=2, tie_policy='FIXED',
+        )
+        services.create_order(
+            self.operator, cargo=Cargo.objects.get(code='K3'), kind='OUTBOUND',
+            priority_group=2, sequence=1, tie_policy='FIXED',
+        )
+        services.register_cargo(
+            self.operator, code='N1', name='N1', weight_kg=2, volume_m3='0.012',
+            destination='보관', length_cells=3,
+        )
+        inbound = services.create_order(
+            self.operator, cargo=Cargo.objects.get(code='N1'), kind='INBOUND',
+            priority_group=1, sequence=3, tie_policy='FIXED',
+        )
+        Plan.objects.create(
+            created_by=self.operator, order=inbound, order_version=inbound.version,
+            observation=self.observation, condition=self.condition, queue_digest='in-chain',
+            result=dict(
+                plan_kind='inbound-placement', status='READY',
+                reason='PROPOSAL_REQUIRES_ADMISSION_AND_EVIDENCE',
+                recommendation=dict(cargo_id='N1', area_id='yard', row=1, column=4, level=3, orientation=0),
+            ),
+        )
+
+        chain = outbound_chain_replay(self.observation)
+        self.assertIsNotNone(chain)
+        self.assertEqual(chain['scene_id'], 'upcoming-scene-outbound-chain')
+        self.assertEqual(chain['scene']['kind'], 'outbound-chain')
+        # Follows tier_recommendations best.steps (K2 before K1) then chains tier 2 (K3 with K4 rehandled), never N1.
+        self.assertEqual(chain['cargo_codes'], ['K2', 'K1', 'K3'])
+        self.assertEqual(len(chain['arrows']), 5)
+        self.assertEqual(chain['scene']['rehandle'], ['K4'])
+        self.assertEqual(len(chain['scene']['frames']), len(chain['arrows']) + 1)
+        self.assertNotIn('N1', {arrow['cargo'] for arrow in chain['arrows']})
+        for frame in chain['scene']['frames']:
+            self.assertNotIn('N1', {box['id'] for box in frame['boxes']})
+        # K2 reaches stand in frame 1 and leaves before K1; K1 reaches stand in frame 2 and leaves before K3.
+        self.assertTrue(any(b['id'] == 'K2' and b['area'] == 'stand' for b in chain['scene']['frames'][1]['boxes']))
+        self.assertNotIn('K2', {b['id'] for b in chain['scene']['frames'][2]['boxes']})
+        self.assertTrue(any(b['id'] == 'K1' and b['area'] == 'stand' for b in chain['scene']['frames'][2]['boxes']))
+        self.assertNotIn('K1', {b['id'] for b in chain['scene']['frames'][3]['boxes']})
+        self.assertTrue(any(b['id'] == 'K3' and b['area'] == 'stand' for b in chain['scene']['frames'][4]['boxes']))
+        self.assertEqual(chain['arrows'][-1]['cargo'], 'K4')
+        self.assertEqual(chain['arrows'][-1]['phase'], '복귀')
+
+        response = self.client.get(f'/inventory/?observation={self.observation.pk}')
+        html = response.content.decode()
+        self.assertIn('남은 반출 연쇄 3D', html)
+        self.assertIn('data-upcoming-plan="outbound-chain"', html)
+        self.assertIn('data-upcoming-scene="upcoming-scene-outbound-chain"', html)
+        self.assertIn('id="upcoming-scene-outbound-chain"', html)
+        self.assertIsNone(re.search(r'\sstyle=', html))
+
+    def test_outbound_chain_replay_returns_none_with_only_inbound_and_one_outbound(self):
+        services.create_order(
+            self.operator, cargo=Cargo.objects.get(code='K3'), kind='OUTBOUND',
+            priority_group=1, sequence=1, tie_policy='FIXED',
+        )
+        services.register_cargo(
+            self.operator, code='N2', name='N2', weight_kg=2, volume_m3='0.012',
+            destination='보관', length_cells=3,
+        )
+        services.create_order(
+            self.operator, cargo=Cargo.objects.get(code='N2'), kind='INBOUND',
+            priority_group=1, sequence=2, tie_policy='FIXED',
+        )
+        self.assertIsNone(outbound_chain_replay(self.observation))
+        html = self.client.get(f'/inventory/?observation={self.observation.pk}').content.decode()
+        self.assertNotIn('data-upcoming-plan="outbound-chain"', html)
+
+    def test_outbound_chain_replay_includes_rehandles_across_tiers(self):
+        services.create_order(
+            self.operator, cargo=Cargo.objects.get(code='K1'), kind='OUTBOUND',
+            priority_group=1, sequence=1, tie_policy='FIXED',
+        )
+        services.create_order(
+            self.operator, cargo=Cargo.objects.get(code='K3'), kind='OUTBOUND',
+            priority_group=2, sequence=1, tie_policy='FIXED',
+        )
+        chain = outbound_chain_replay(self.observation)
+        self.assertIsNotNone(chain)
+        self.assertEqual(chain['cargo_codes'], ['K1', 'K3'])
+        self.assertEqual(len(chain['arrows']), 6)
+        self.assertEqual(chain['scene']['rehandle'], ['K2', 'K4'])
+        self.assertEqual([a['phase'] for a in chain['arrows']], ['재취급', '반출', '복귀', '재취급', '반출', '복귀'])
 
     def test_active_command_populates_yard_arrows_on_page(self):
         outbound = services.create_order(
