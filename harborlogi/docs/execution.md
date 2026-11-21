@@ -62,6 +62,7 @@ ledger = BusinessLedger(ledger_path, placement_sources=("synthetic-camera",),
 | `HARBOR_EXECUTOR_BATCH` | 한 tick이 다루는 최대 활성 업무 수 | 4 |
 | `HARBOR_PLACEMENT_SOURCES` / `HARBOR_RETREAT_SOURCES` | 설치자가 등록한 배치·퇴피 근거 출처 ID(쉼표 구분, 서로 겹치지 않음). 장부의 `placement_sources`·`retreat_sources`가 이 값을 쓴다 | 미설정(placeholder) |
 | `HARBOR_EXECUTOR_EVIDENCE=intake` | 실행기가 제출된 근거(intake)를 소비해 confirm·finish를 이어간다 | 끔(근거 없이 단계가 열리지 않음) |
+| `HARBOR_RELEASE_OVERDUE_MINUTES` | 열린 현장 배정에서 ROSY 출발 허락(`vehicle.release_permitted`)이 오지 않을 때 비상 적재면 확인을 알리는 기준 시간(분) | 기본 10분 |
 
 근거 제출은 `harbor_web.evidence.submit`(현장 확인 역할)로 들어오며, mission·attempt·계획 revision에 결속되고 신선(기본 5초)하며 아직 소모되지 않은 것만 채택된다. 운영 producer의 전송·자격 계약은 [물리 관측 수용 조건](observation-acceptance.md) 산출물이 열기 전까지 설치 통합 담당 영역이다.
 

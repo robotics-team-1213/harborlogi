@@ -40,6 +40,24 @@ class DepartureLedgerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.ledger.authorize('pinky-1', since=datetime(2026, 11, 8))
 
+    def test_has_permit_checks_vehicle_since_and_both_states(self):
+        self.assertFalse(self.ledger.has_permit('pinky-1', since=NOW))
+        self.permit('e-old', vehicle='pinky-1', when=NOW - timedelta(seconds=1))
+        self.permit('e-other', vehicle='pinky-2', when=NOW + timedelta(seconds=1))
+        self.assertFalse(self.ledger.has_permit('pinky-1', since=NOW))
+
+        self.permit('e-cur', vehicle='pinky-1', when=NOW)
+        self.assertTrue(self.ledger.has_permit('pinky-1', since=NOW))
+        # Read-only check must leave the permit unspent for authorize().
+        self.assertEqual(self.ledger.authorize('pinky-1', since=NOW), 'e-cur')
+        # AUTHORIZED permits still count as having received ROSY's event for this arrival.
+        self.assertTrue(self.ledger.has_permit('pinky-1', since=NOW))
+
+        with self.assertRaises(ValueError):
+            self.ledger.has_permit('pinky-1', since=datetime(2026, 11, 8))
+        with self.assertRaises(ValueError):
+            self.ledger.has_permit('', since=NOW)
+
 
 if __name__ == '__main__':
     unittest.main()

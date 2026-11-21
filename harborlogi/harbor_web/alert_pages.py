@@ -1,13 +1,45 @@
 """Read-only exceptions from existing operations facts and field assignments."""
+from datetime import timedelta
+import math
+import os
+from pathlib import Path
+
+from django.conf import settings
 from django.shortcuts import render
+from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
+from harbor.departure import DepartureLedger
 from harbor_web import access
 from harbor_web.auth import require_roles, roles
-from harbor_web.models import FieldEpisode
+from harbor_web.models import DepartureIntent, FieldEpisode
 from harbor_web.operations import operations_context
 from harbor_web.views import selected_observation
 from harbor_web.work_state import work_state
+
+DEFAULT_RELEASE_OVERDUE_MINUTES = 10.0
+
+
+def release_overdue_minutes() -> float:
+    raw = os.environ.get('HARBOR_RELEASE_OVERDUE_MINUTES')
+    if raw in (None, ''):
+        raw = getattr(settings, 'HARBOR_RELEASE_OVERDUE_MINUTES', None)
+    if raw in (None, '') or isinstance(raw, bool):
+        return DEFAULT_RELEASE_OVERDUE_MINUTES
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_RELEASE_OVERDUE_MINUTES
+    return value if math.isfinite(value) and value > 0 else DEFAULT_RELEASE_OVERDUE_MINUTES
+
+
+def _has_release_permit(episode):
+    if DepartureIntent.objects.filter(episode=episode).exclude(release_event_id='').exists():
+        return True
+    path = os.environ.get('HARBOR_LEDGER_PATH', '').strip()
+    if not path or not Path(path).exists():
+        return False
+    return DepartureLedger(path).has_permit(episode.vehicle_id, since=episode.created_at)
 
 
 ATTENTION_TEXT = {
@@ -60,9 +92,18 @@ def alerts_context(request):
             can_open_field = False  # Readers can see the alert, but field details require assignment.
         else:
             episodes = episodes.filter(assigned_to=request.user)
+    now = timezone.now()
+    overdue_after = timedelta(minutes=release_overdue_minutes())
     for episode in episodes:
         cargo = episode.order.cargo.code if episode.order.cargo_id else '자동 재배치'
-        alerts.append(dict(title=f'{cargo} · 적재면 확인 대기', detail=f'차량 {episode.vehicle_id}', count=1,
+        age = now - episode.created_at
+        if age >= overdue_after and not _has_release_permit(episode):
+            title = f'{cargo} · ROSY 사건이 안 옴 → 비상 적재면 확인'
+            detail = f'차량 {episode.vehicle_id} · {int(age.total_seconds() // 60)}분 경과'
+        else:
+            title = f'{cargo} · 적재면 확인 대기'
+            detail = f'차량 {episode.vehicle_id}'
+        alerts.append(dict(title=title, detail=detail, count=1,
             href=f'/field/{episode.pk}/' if can_open_field else None, action='배정 보기'))
     return dict(alerts=alerts, alert_total=sum(item['count'] for item in alerts))
 
