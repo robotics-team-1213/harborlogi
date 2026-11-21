@@ -1,6 +1,7 @@
 import {mountLinkedGrid, selectionFor, atPosition, slotLabel, topBoxes} from './yard-selection.mjs';
 import {cloneBoxes, transit, moveBox, placementFromWorld} from './yard-model.mjs';
 import {DraftSession} from './yard-draft.mjs';
+import {bindUpcomingPlans, stageButtonSpecs} from './yard-inline.mjs';
 
 function fallback(figure) {
   const preview = figure.closest('[data-yard-preview]');
@@ -18,11 +19,13 @@ function fallback(figure) {
 export async function mountYardViewer(figure) {
   const {createRenderer} = await import('./yard-renderer.js');
   const preview = figure.closest('[data-yard-preview]');
-  const scene = JSON.parse(document.getElementById(figure.dataset.scene).textContent);
+  let scene = JSON.parse(document.getElementById(figure.dataset.scene).textContent);
   const canvas = figure.querySelector('canvas');
   const flat = preview.querySelector('[data-yard-flat]');
   const views = preview.querySelector('[data-yard-views]');
-  const controls = [...preview.querySelectorAll('[data-yard-stage]')];
+  const stagesHost = preview.querySelector('[data-yard-stages]');
+  const statusEl = preview.querySelector('[data-yard-status]');
+  let controls = [...preview.querySelectorAll('[data-yard-stage]')];
   const cargo = figure.querySelector('[data-scene-cargo]');
   const info = figure.querySelector('[data-scene-info]');
   const play = figure.querySelector('[data-scene-play]');
@@ -54,21 +57,20 @@ export async function mountYardViewer(figure) {
   let selected = '', current = cloneBoxes(scene.frames[index].boxes), draft = null;
   let playing = false, internalStep = false, isolated = false, timer = 0, raf = 0, animation = null;
   let destroyed = false, draftHistory = [], replayIndex = 0, session = null;
-  const slotCells = scene.slot_cells || 0;  // a site with fixed 1×3 slots (KAN-115) names slots, not cells
-  const place = box => slotCells ? slotLabel(scene.areas, box, slotCells) : box.positions.join(' / ');
+  const slotCells = () => scene.slot_cells || 0;  // a site with fixed 1×3 slots (KAN-115) names slots, not cells
+  const place = box => slotCells() ? slotLabel(scene.areas, box, slotCells()) : box.positions.join(' / ');
   // A stored plan replays as 계획 재생. Without one only local moves can replay, so the button stays in view,
   // disabled until a virtual move exists, instead of disappearing (an observation-only page had no replay at all).
-  const planReplay = scene.frames.length > 1 && controls.length === scene.frames.length;
+  const isPlanReplay = () => scene.frames.length > 1 && controls.length === scene.frames.length;
   function playIdle() {
     play.hidden = scene.kind === 'map-definition';
-    play.disabled = draft ? draftHistory.length < 2 : !planReplay;
-    play.textContent = draft || !planReplay ? '가상 변경 재생' : '계획 재생';
+    play.disabled = draft ? draftHistory.length < 2 : !isPlanReplay();
+    play.textContent = draft || !isPlanReplay() ? '가상 변경 재생' : '계획 재생';
     play.setAttribute('aria-pressed', 'false');
   }
-  const ceiling = Math.max(...scene.areas.map(a => a.levels)) + .6;
-  let renderer = null;
-  renderer = createRenderer(canvas, scene.areas, {
-    showVolumes: scene.kind === 'map-definition', transpose: Boolean(slotCells),
+  const ceiling = () => Math.max(...scene.areas.map(a => a.levels)) + .6;
+  const makeRenderer = () => createRenderer(canvas, scene.areas, {
+    showVolumes: scene.kind === 'map-definition', transpose: Boolean(slotCells()),
     colors, onSelect: id => select(id), onTransform: (id, position) => {
       if (!draft || playing) return;
       const box = draft.find(b => b.id === id);
@@ -77,6 +79,8 @@ export async function mountYardViewer(figure) {
       else { error.textContent = '구역 안의 격자 위치로 옮겨주세요.'; renderer.setBoxes(draft); }
     }, onError: () => { destroy(); fallback(figure); },
   });
+  let currentAreasKey = JSON.stringify(scene.areas);
+  let renderer = makeRenderer();
   function stop() {
     if (draft && animation) {
       progress.dataset.phase = '중지 · 최종 가상 배치'; progress.dataset.progress = '100';
@@ -112,8 +116,8 @@ export async function mountYardViewer(figure) {
       changes.append(item);
     }
     editTools.querySelector('[data-scene-edit-help]').textContent = draft ?
-      `${selected || '화물 미선택'} · 평면에서 ${slotCells ? '자리의 ‘놓기’를' : '‘여기로 이동’ 칸을'} 누르세요. 놓을 수 없는 곳을 누르면 이유가 나옵니다. 옮긴 뒤 ‘가상 변경 재생’으로 이동을 다시 봅니다.` :
-      `화물을 선택하고 가상 배치 편집을 시작하세요. 옮긴 뒤 ‘가상 변경 재생’으로 이동을 볼 수 있습니다.${planReplay ? ' 저장된 계획 결과도 불러와 수정할 수 있습니다.' : ''}`;
+      `${selected || '화물 미선택'} · 평면에서 ${slotCells() ? '자리의 ‘놓기’를' : '‘여기로 이동’ 칸을'} 누르세요. 놓을 수 없는 곳을 누르면 이유가 나옵니다. 옮긴 뒤 ‘가상 변경 재생’으로 이동을 다시 봅니다.` :
+      `화물을 선택하고 가상 배치 편집을 시작하세요. 옮긴 뒤 ‘가상 변경 재생’으로 이동을 볼 수 있습니다.${isPlanReplay() ? ' 저장된 계획 결과도 불러와 수정할 수 있습니다.' : ''}`;
   }
   const selection = () => selectionFor(boxes().find(b => b.id === selected)) || location;
   const mode = () => scene.kind === 'map-definition' ? 'map-definition' : draft ? 'local-draft' : index ? 'predicted' : 'original';
@@ -126,12 +130,13 @@ export async function mountYardViewer(figure) {
     const box = boxes().find(b => b.id === selected);
     const base = scene.frames[index].boxes.find(b => b.id === selected);
     cargo.value = box ? box.id : '';
+    const sc = slotCells();
     // With fixed slots the size, turn and covered cells never change, so only the slot is named.
-    const where = box && (slotCells ? (draft ? '가상: ' + slotLabel(scene.areas, box, slotCells) + ' · 기준: ' + slotLabel(scene.areas, base, slotCells) : slotLabel(scene.areas, box, slotCells))
+    const where = box && (sc ? (draft ? '가상: ' + slotLabel(scene.areas, box, sc) + ' · 기준: ' + slotLabel(scene.areas, base, sc) : slotLabel(scene.areas, box, sc))
       : box.size + ' · ' + box.orientation + '도 · ' + (draft ? '가상: ' + box.area + ' / ' + box.row + '행 ' + box.column + '열 ' + box.level + '층 · 기준: ' + base.positions.join(' / ') : box.positions.join(' / ')));
     info.textContent = box ? box.id + ' · ' + box.label + (!draft && scene.rehandle?.includes(box.id) ? ' (재취급 예정 · 계획 기준)' : '') + ' · ' + where
-      : location ? `${scene.kind === 'map-definition' ? '미관측 위치 · 점유 확인 안 됨' : slotCells ? '빈 자리' : '빈 위치'} · ${slotCells ? slotLabel(scene.areas, location, slotCells) : `${location.area} · ${location.row}행 ${location.column}열 ${location.level}층`} · 화물 아님`
-        : `박스나 화물 목록을 선택해 ${slotCells ? '' : '크기·'}위치를 확인하세요.`;
+      : location ? `${scene.kind === 'map-definition' ? '미관측 위치 · 점유 확인 안 됨' : sc ? '빈 자리' : '빈 위치'} · ${sc ? slotLabel(scene.areas, location, sc) : `${location.area} · ${location.row}행 ${location.column}열 ${location.level}층`} · 화물 아님`
+        : `박스나 화물 목록을 선택해 ${sc ? '' : '크기·'}위치를 확인하세요.`;
     if (location && scene.kind === 'map-definition') status(info.textContent);
     for (const name of ['area','row','column','level','orientation']) editor.elements[name].value = box ? box[name] : '';
     editor.querySelector('fieldset').disabled = !box || playing;
@@ -149,8 +154,9 @@ export async function mountYardViewer(figure) {
     details(); syncLinked();
   }
   function fillCargo() {
+    const sc = slotCells();
     cargo.replaceChildren(new Option('화물 선택', ''));
-    boxes().forEach(box => cargo.add(new Option(box.id + (slotCells ? '' : ' · ' + box.size) + ' · ' + box.label, box.id)));
+    boxes().forEach(box => cargo.add(new Option(box.id + (sc ? '' : ' · ' + box.size) + ' · ' + box.label, box.id)));
     details();
   }
   function paint(values) {
@@ -212,7 +218,8 @@ export async function mountYardViewer(figure) {
   }
   function describeMove(segment, t) {
     const {from, to} = segment;
-    const location = box => slotCells ? slotLabel(scene.areas, box, slotCells) : box.area + ' ' + box.row + '행 ' + box.column + '열 ' + box.level + '층';
+    const sc = slotCells();
+    const location = box => sc ? slotLabel(scene.areas, box, sc) : box.area + ' ' + box.row + '행 ' + box.column + '열 ' + box.level + '층';
     const phase = !from ? '배치 비교 · 관측 출발 위치 없음' : segment.instant ? '방향 비교 · 즉시 전환' : t < .25 ? '들어 올림' : t < .75 ? '이동' : t < 1 ? '내려놓기' : '완료';
     Object.assign(progress.dataset, {cargo:to.id, source:from ? location(from) : '관측 출발 위치 없음',
       destination:location(to), phase, progress:String(Math.round(t * 100)), mode:draft ? 'local-draft' : 'plan'});
@@ -252,7 +259,7 @@ export async function mountYardViewer(figure) {
     animation.elapsed += (now - animation.last) * Number(speed.value); animation.last = now;
     const segment = animation.segments[animation.segment];
     const t = segment.instant ? 1 : Math.min(1, animation.elapsed / 4500);
-    paint(segment.boxes.map(box => box.id === segment.to.id && segment.from ? transit(segment.from, segment.to, t, ceiling) : box));
+    paint(segment.boxes.map(box => box.id === segment.to.id && segment.from ? transit(segment.from, segment.to, t, ceiling()) : box));
     describeMove(segment, t);
     if (t < 1) raf = requestAnimationFrame(tick);
     else if (++animation.segment < animation.segments.length) {
@@ -271,6 +278,9 @@ export async function mountYardViewer(figure) {
     if (!internalStep) stop();
     cancelAnimationFrame(raf); raf = 0; animation = null;
     index = next;
+    if (stagesHost) {
+      controls.forEach((button, idx) => button.setAttribute('aria-pressed', String(idx === next)));
+    }
     if (selected && !boxes().some(box => box.id === selected)) selected = '';
     if (location) { const occupant = atPosition(boxes(), location); if (occupant) { selected = occupant.id; location = null; } }
     renderer.select(selected); fillCargo(); syncLinked();
@@ -297,7 +307,7 @@ export async function mountYardViewer(figure) {
     if (!figure.hidden) renderer.resize();
   }
   on(desktop, 'change', () => showFlat(flatView));
-  linked = mountLinkedGrid(preview, scene, value => {
+  const makeLinked = () => mountLinkedGrid(preview, scene, value => {
     if (animation || playing) { stop(); selectFrame(index, false); }
     if (draft && selected && !value.cargoId) {
       const box = draft.find(item=>item.id===selected);
@@ -312,7 +322,91 @@ export async function mountYardViewer(figure) {
     }
   }, position => draft && selected && !playing ? moveBox(scene.areas,draft,selected,
     {...position,orientation:draft.find(box=>box.id===selected).orientation}) : null);
-  scene.areas.forEach(area => editor.elements.area.add(new Option(area.label + ' · ' + area.id, area.id)));
+  linked = makeLinked();
+  function syncAreaOptions() {
+    editor.elements.area.replaceChildren();
+    scene.areas.forEach(area => editor.elements.area.add(new Option(area.label + ' · ' + area.id, area.id)));
+  }
+  syncAreaOptions();
+  function syncDynamicStages() {
+    if (!stagesHost) return;
+    const specs = stageButtonSpecs(scene);
+    if (specs.length) {
+      stagesHost.replaceChildren(...specs.map(spec => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'quiet';
+        button.dataset.yardStage = String(spec.index);
+        button.setAttribute('aria-pressed', String(spec.pressed));
+        button.textContent = spec.label;
+        button.addEventListener('click', () => {
+          if (draft) return;
+          controls.forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+          if (statusEl) {
+            statusEl.textContent = spec.index === 0
+              ? '관측한 배치 · 저장된 원본 배치입니다.'
+              : `${spec.label} 후 예상 배치 · 실제 관측·실행 상태는 바뀌지 않습니다.`;
+          }
+          selectFrame(spec.index, true);
+        });
+        return button;
+      }));
+      stagesHost.hidden = false;
+      if (statusEl) {
+        statusEl.hidden = false;
+        statusEl.textContent = '관측한 배치 · 단계를 선택하면 계획상 예상 위치만 바뀝니다.';
+      }
+    } else {
+      stagesHost.replaceChildren();
+      stagesHost.hidden = true;
+      if (statusEl) {
+        statusEl.hidden = true;
+        statusEl.textContent = '';
+      }
+    }
+    controls = [...preview.querySelectorAll('[data-yard-stage]')];
+  }
+  function startPlayback() {
+    if (playing || animation || draft || !isPlanReplay()) return;
+    if (figure.hidden) showFlat(false);
+    playing = true; play.textContent = '재생 중지'; play.setAttribute('aria-pressed', 'true');
+    if (index === scene.frames.length - 1) { internalStep = true; controls[0].click(); internalStep = false; }
+    else if (!animation) advance();
+  }
+  function setScene(nextScene, {autoplay = false} = {}) {
+    if (destroyed || !nextScene?.frames?.length) return;
+    if (draft) {
+      draft = null; session = null; draftHistory = []; lockDraft(false);
+    }
+    stop(); cancelAnimationFrame(raf); raf = 0; animation = null;
+    scene = nextScene;
+    index = 0; selected = ''; location = null; isolated = false;
+    figure.querySelector('[data-scene-action="isolate"]').setAttribute('aria-pressed', 'false');
+    error.textContent = '';
+    const nextAreasKey = JSON.stringify(scene.areas);
+    if (nextAreasKey !== currentAreasKey) {
+      currentAreasKey = nextAreasKey;
+      renderer?.dispose();
+      renderer = makeRenderer();
+    }
+    renderer.select(null); renderer.isolate(null); renderer.selectLocation(null);
+    syncAreaOptions();
+    syncDynamicStages();
+    linked?.grid?.remove();
+    linked = makeLinked();
+    figure.classList.toggle('map-definition', scene.kind === 'map-definition');
+    figure.querySelector('.model-inspector').hidden = scene.kind === 'map-definition';
+    editTools.hidden = scene.kind === 'map-definition';
+    editButton.disabled = scene.kind === 'map-definition';
+    loadPlan.hidden = scene.kind === 'outbound-chain' || !isPlanReplay();
+    playIdle();
+    if (autoplay && figure.hidden) showFlat(false);
+    selectFrame(0, false);
+    showFlat(flatView);
+    renderer.resize();
+    renderer.fit();
+    if (autoplay && isPlanReplay()) startPlayback();
+  }
   on(editor, 'submit', event => {
     event.preventDefault();
     if (!draft || !selected || playing) return;
@@ -331,13 +425,12 @@ export async function mountYardViewer(figure) {
   });
   on(play, 'click', () => {
     if (playing || animation) { stop(); if (!draft) selectFrame(index, false); return; }
-    playing = true; play.textContent = '재생 중지'; play.setAttribute('aria-pressed', 'true');
     if (draft) {
+      playing = true; play.textContent = '재생 중지'; play.setAttribute('aria-pressed', 'true');
       replayIndex = 0; paint(draftHistory[0]); renderer.setEditable(false);
       editor.querySelector('fieldset').disabled = true; editButton.disabled = true; updateDraftState(); advance(); return;
     }
-    if (index === scene.frames.length - 1) { internalStep = true; controls[0].click(); internalStep = false; }
-    else if (!animation) advance();
+    startPlayback();
   });
   figure.querySelectorAll('[data-scene-camera]').forEach(button => on(button, 'click', () => renderer.view(button.dataset.sceneCamera)));
   figure.querySelectorAll('[data-scene-zoom]').forEach(button => on(button, 'click', () => renderer.zoom(Number(button.dataset.sceneZoom) > 0 ? 1.22 : .82)));
@@ -380,14 +473,29 @@ export async function mountYardViewer(figure) {
     status(scene.frames[index].label);
   }
   editTools.hidden = scene.kind === 'map-definition';
-  loadPlan.hidden = scene.frames.length < 2 || controls.length !== scene.frames.length;
+  loadPlan.hidden = scene.kind === 'outbound-chain' || !isPlanReplay();
   figure.querySelector('[data-scene-action="fullscreen"]').hidden = !document.fullscreenEnabled;
   preview.classList.add('yard-linked');
   paint(current); fillCargo(); syncLinked(); views.hidden = false; showFlat(false);
   canvas.dataset.moving = 'false'; figure.dataset.ready = 'true'; figure.dataset.renderer = 'webgl'; renderer.resize(); renderer.fit();
-  return {destroy};
+  return {destroy, setScene};
 }
 
-if (typeof document !== 'undefined') document.querySelectorAll('[data-yard-3d]').forEach(figure => {
-  mountYardViewer(figure).catch(() => fallback(figure));
-});
+if (typeof document !== 'undefined') {
+  const viewerPromises = new WeakMap();
+  document.querySelectorAll('[data-yard-3d]').forEach(figure => {
+    viewerPromises.set(
+      figure,
+      mountYardViewer(figure).catch(() => {
+        fallback(figure);
+        return null;
+      }),
+    );
+  });
+  bindUpcomingPlans(document, {
+    getViewer: () => {
+      const figure = document.querySelector('[data-yard-3d]');
+      return figure ? viewerPromises.get(figure) || null : null;
+    },
+  });
+}

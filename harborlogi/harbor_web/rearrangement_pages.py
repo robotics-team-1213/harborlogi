@@ -4,6 +4,9 @@ While inbound requests wait for a decision the page says the scenario is running
 decided, it previews R2 on the observed yard plus the decided placements, ranked by the outbound order. A plan is
 created only from an observation (ADR 0017); an automatic authorization that is still on can only be switched off.
 """
+from dataclasses import asdict
+import json
+
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.shortcuts import redirect
@@ -13,9 +16,12 @@ from django.views.decorators.http import require_http_methods
 from harbor_web import rearrangement, services
 from harbor_web.auth import has_role, require_roles
 from harbor_web.inbound_decision import inbound_progress, projected_snapshot
-from harbor_web.models import Audit, Observation, Plan, RearrangeAuthorization
+from harbor_web.models import Audit, Observation, Order, Plan, RearrangeAuthorization
 from harbor_web.views import page
+from harbor_web.workspace import spatial_stages
+from harbor_web.yard_occupancy import occupancy_map
 from harbor_web.yard_rows import place_context, place_label
+from harbor_web.yard_scene import scene_for
 
 PREVIEW_K, PREVIEW_MAX_MOVES = 2, 6  # the defaults of a requested rearrangement (rearrangement.request_rearrangement)
 
@@ -39,8 +45,19 @@ def _preview(observation, progress, now):
     except ValueError:
         return None
     labels, slot = place_context(observation.condition.payload)  # AREA_LABELS unless the site names its areas
+    yard_stages, yard_scene = [], None
+    if proposal.status == 'READY' and proposal.moves:
+        raw_moves = json.loads(json.dumps([asdict(move) for move in proposal.moves]))
+        yard_stages, display_moves = spatial_stages(
+            Order(pk=0, kind='REARRANGE'), observation, raw_moves, snapshot=projected,
+        )
+        yard_scene = scene_for(yard_stages)
+        if yard_scene:
+            occupancy = occupancy_map(yard_stages[0] if yard_stages else None, display_moves)
+            yard_scene['rehandle'] = occupancy['rehandle_cargo'] if occupancy else []
     return dict(proposal=proposal, record=rearrangement.plan_record(proposal, {}), observation=observation,
                 projected=len(projected.placements) != len(snapshot.placements), expired=_expired(observation, now),
+                yard_stages=yard_stages, yard_scene=yard_scene,
                 moves=[dict(number=i, cargo=m.cargo_id, source=place_label(vars(m.source_placement), labels, slot),
                             destination=place_label(vars(m.destination_placement), labels, slot)) for i, m in enumerate(proposal.moves, start=1)])
 
@@ -78,6 +95,7 @@ def rearrangement_page(request):
     plans = Plan.objects.filter(order__kind='REARRANGE').select_related('order').order_by('-pk')[:25]
     rows = [dict(plan=plan, record=plan.result.get('rearrangement', {}), command=getattr(plan, 'command', None)) for plan in plans]
     return page(request, 'rearrangement.html', section='rearrangement', rows=rows, progress=progress, preview=preview,
+        yard_stages=preview['yard_stages'] if preview else [], yard_scene=preview['yard_scene'] if preview else None,
         outbound_pending=rearrangement.outbound_pending(), authorization=rearrangement.current_authorization(),
         history=RearrangeAuthorization.objects.order_by('-pk')[:10],
         holds=Audit.objects.filter(action=rearrangement.HOLD_ACTION).order_by('-pk')[:10])

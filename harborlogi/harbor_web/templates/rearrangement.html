@@ -6,6 +6,14 @@
 {% elif preview %}<section class="panel" aria-labelledby="scenario-state"><div class="panel-h"><h3 id="scenario-state">재배치 시나리오</h3><span class="scope">관측 #{{ preview.observation.pk }}{% if preview.projected %} + 결정한 입고 위치{% endif %} · 반출 순서 기준 미리 보기 · 실행 실적 아님</span><span class="src chip tone-{% if preview.proposal.status == 'READY' %}info{% else %}hold{% endif %}">{{ preview.proposal.status }}</span></div><div class="panel-b">
   {% if preview.proposal.status == 'READY' %}<p>막힘 쌍 B {{ preview.record.blocked_before }} → {{ preview.record.blocked_after }} · 미확인 쌍 N {{ preview.record.unknown_before }} → {{ preview.record.unknown_after }} · 이동 {{ preview.record.move_count }}회</p>
   <ol class="steps">{% for move in preview.moves %}<li class="step phase-other"><i>{{ move.number }}</i>{{ move.cargo }} <small>{{ move.source }} → {{ move.destination }}</small></li>{% endfor %}</ol>
+  {% if preview.yard_scene %}
+  <div class="inventory-yard yard-inline-3d" data-yard-preview>
+    <div class="preview-controls" aria-label="재배치 예상 단계 선택">{% for stage in preview.yard_stages %}<button type="button" class="quiet" data-yard-stage="{{ stage.index }}" aria-controls="{{ stage.panel_id }}" aria-pressed="{% if forloop.first %}true{% else %}false{% endif %}" hidden>{% if forloop.first %}현재{% else %}{{ stage.index }} · {{ stage.phase }}{% endif %}</button>{% endfor %}</div>
+    <p class="preview-status helptext" data-yard-status role="status">현재 배치 · 단계를 선택하면 예상 이동만 미리 봅니다.</p>
+    {% include 'yard_3d.html' with yard_scene=preview.yard_scene %}
+    <div data-yard-flat>{% for stage in preview.yard_stages %}{% include 'yard_stage.html' %}{% endfor %}</div>
+  </div>
+  {% endif %}
   {% else %}<p>재배치할 이유가 없거나 지금 계산할 수 없습니다 · 사유 {{ preview.proposal.reason }}</p>{% endif %}
   {% if preview.expired %}<p class="notice">관측 #{{ preview.observation.pk }}의 유효 시간이 지났습니다. 새 관측이 들어와야 재배치 계획을 만들 수 있습니다.</p>{% endif %}
   {% if can_operate %}{% if preview.projected %}<p class="helptext">결정한 입고가 아직 관측에 없습니다. 입고가 실제로 끝나 새 관측이 들어오면 재배치 계획을 만들 수 있습니다.</p>{% elif outbound_pending %}<p class="helptext">반출 요청이 남아 있어 실제 재배치 계획은 반출이 먼저라는 규칙(ADR 0017)에 따라 보류됩니다. 시나리오 종료 뒤 재배치 규칙은 팀 결정이 필요합니다(KAN-119).</p>{% endif %}<form method="post" class="actions">{% csrf_token %}<button name="action" value="request"{% if preview.projected or preview.expired %} disabled{% endif %}>재배치 계획 만들기</button></form>{% endif %}

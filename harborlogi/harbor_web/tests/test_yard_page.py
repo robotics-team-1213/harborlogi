@@ -195,6 +195,47 @@ class YardPageTests(TestCase):
         self.assertIn(f'id="upcoming-scene-{rearrange_plan.pk}"', html)
         self.assertNotIn(f'id="upcoming-scene-{inbound_plan.pk}"', html)
         self.assertIn('→ 2행 1열 3층', html)
+        self.assertIn('data-yard-stages', html)
+        self.assertIn(f'data-upcoming-plan="plan-{outbound_plan.pk}"', html)
+        self.assertIn(f'data-upcoming-scene="upcoming-scene-{outbound_plan.pk}"', html)
+        self.assertIsNone(re.search(r'\sstyle=', html))
+
+    def test_rearrangement_preview_includes_3d_viewer_and_stage_buttons(self):
+        # Create a 3x3 spatial observation where bridging cargo BR can rearrange onto the floor (G=1).
+        cells = [dict(bay_id=f'Y{r}{c}', row=r, column=c) for r in range(1, 4) for c in range(1, 4)]
+        condition = services.register_condition(self.admin, name='Grid R2', calibration_ref='declared', payload={
+            'outbound_stand': 'out', 'temporary_bays': ['temp'], 'conveyor': 'belt',
+            'allowed_moves': [['Y11', 'out']], 'max_observation_age_seconds': 3600,
+            'arm_reach': [['A', c['bay_id']] for c in cells] + [['A', 'temp'], ['A', 'out']],
+            'yard_layout': dict(rows=3, columns=3, levels=3, cells=cells),
+            'spatial_areas': [dict(area_id=a, rows=3, columns=3, levels=3) for a in ['temp', 'out']],
+            'spatial_moves': [['yard', 'yard'], ['yard', 'out'], ['yard', 'temp'], ['temp', 'yard']],
+        })
+        placements = []
+        for code, length, column, level in (('L1', 1, 1, 1), ('L2', 1, 2, 1), ('BR', 2, 1, 2)):
+            cargo = services.register_cargo(self.operator, code=code, name=code, weight_kg=1, volume_m3=1,
+                                            destination='yard', length_cells=length)
+            placements.append(dict(cargo_id=code, area_id='yard', row=1, column=column, level=level, orientation=0,
+                                   footprint_revision=CargoFootprint.objects.get(cargo=cargo).pk))
+        services.record_observation(
+            self.admin, source_id='r2-cam', source_revision='1', observed_at=self.now,
+            provenance='SYNTHETIC', condition=condition,
+            payload=dict(schema='grid-placement-v1', observed_areas=['yard', 'temp', 'out'],
+                         holdings=[], placements=placements),
+        )
+        response = self.client.get('/rearrangement/')
+        self.assertEqual(response.status_code, 200)
+        preview = response.context['preview']
+        self.assertIsNotNone(preview)
+        self.assertEqual(preview['proposal'].status, 'READY')
+        self.assertTrue(preview['yard_scene']['frames'])
+        self.assertEqual(len(preview['yard_stages']), len(preview['proposal'].moves) + 1)
+        html = response.content.decode()
+        self.assertIn('data-yard-preview', html)
+        self.assertIn('data-yard-3d', html)
+        self.assertIn('data-yard-stage="0"', html)
+        self.assertIn('data-yard-stage="1"', html)
+        self.assertIn('id="yard-scene-data"', html)
         self.assertIsNone(re.search(r'\sstyle=', html))
 
     def test_active_command_populates_yard_arrows_on_page(self):
