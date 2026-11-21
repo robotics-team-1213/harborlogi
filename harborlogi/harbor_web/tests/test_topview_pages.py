@@ -100,8 +100,13 @@ class TopviewPagesTests(TestCase):
                 self.operator.groups.set([Group.objects.get_or_create(name=role)[0]])
                 list(self.pages())
 
-    def test_field_only_users_do_not_trigger_camera_lookup(self):
+    def test_field_only_users_see_panel_on_inventory_without_redirect_lookup(self):
         self.operator.groups.set([Group.objects.get_or_create(name='field')[0]])
-        self.assertEqual(self.client.get('/').status_code, 302)
-        self.assertEqual(self.client.get('/inventory/').status_code, 403)
+        redirect_response = self.client.get('/')
+        self.assertEqual((redirect_response.status_code, redirect_response['Location']), (302, '/alerts/'))
+        self.assertEqual(self.client.get('/alerts/').status_code, 200)
+        self.assertEqual(self.client.get('/settings/').status_code, 403)
         self.reader.workcell_observations.assert_not_called()
+        inventory_response = self.client.get('/inventory/')
+        self.assertEqual(inventory_response.status_code, 200)
+        self.assertContains(inventory_response, 'ROSY 탑뷰', count=1)

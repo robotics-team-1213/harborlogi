@@ -1,5 +1,6 @@
-.sidebar a {gap:var(--primitive-space-3)}
+.sidebar a {position:relative;gap:var(--primitive-space-3)}
 .nav-icon {flex:none;display:block}
+.nav-badge {margin-left:auto;min-width:1.25rem;padding:0 var(--primitive-space-1);border-radius:999px;background:var(--primitive-color-orange-dark);color:var(--primitive-color-white);font-size:var(--primitive-font-caption);font-weight:700;line-height:1.4;text-align:center;font-variant-numeric:tabular-nums}
 .nav-density {display:flex;align-items:center;gap:var(--primitive-space-3);min-height:44px;padding:var(--primitive-space-3);margin-bottom:var(--primitive-space-3);background:transparent;color:var(--semantic-text-inverse);border:1px solid var(--semantic-text-secondary)}
 .nav-density[hidden] {display:none}
 .nav-density:hover {background:var(--semantic-action-primary)}
@@ -19,6 +20,7 @@
   /* Rail (KAN-115 시안): icon with a short name under it, so the menu reads without hovering */
   .nav-compact .sidebar a {flex-direction:column;justify-content:center;gap:2px;min-height:52px;padding:var(--primitive-space-1) 2px;text-align:center}
   .nav-compact .sidebar .nav-label {font-size:var(--primitive-font-caption);font-weight:600;line-height:1.2;word-break:keep-all}
+  .nav-compact .sidebar .nav-badge {position:absolute;top:var(--primitive-space-1);right:var(--primitive-space-1);margin-left:0}
   .nav-compact .nav-density .nav-label {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
   .nav-compact .nav-group-label {position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
   .nav-compact .sidebar-foot {display:none}

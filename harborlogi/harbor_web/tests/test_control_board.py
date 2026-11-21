@@ -210,7 +210,7 @@ class ControlBoardPagesTests(TestCase):
             self.assertIn(text, html)
         rows = html.split(f'data-job="{self.plan.pk}" data-rows="', 1)[1].split('"', 1)[0].split()
         self.assertIn('yard-R1S1', rows)
-        self.assertIn('<span class="crumb">운영 현황</span>', html)
+        self.assertIn('<span class="crumb">상황판</span>', html)
 
     def test_outbound_workspace_shows_the_same_slot_view(self):
         page = self.client.get(f'/requests/{self.order.pk}/')

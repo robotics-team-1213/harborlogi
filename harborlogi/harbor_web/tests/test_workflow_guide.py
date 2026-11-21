@@ -45,9 +45,12 @@ class WorkflowGuideTests(TestCase):
     def test_owner_is_the_scenario_persona_when_it_can_open_the_page(self):
         rows = scenarios.scenario_rows({'field'})['others']
         s11 = next(r for r in rows if r['key'] == 'S11')
-        self.assertEqual({s['owner'] for s in s11['steps']}, {'조회'})
+        self.assertEqual([(bool(s['href']), s['owner']) for s in s11['steps']],
+                         [(False, '조회'), (False, '조회'), (True, ''), (False, '조회')])
         s8 = next(r for r in rows if r['key'] == 'S8')
-        self.assertEqual([s['owner'] for s in s8['steps']], ['설치·운영 관리', '설치·운영 관리'])
+        self.assertEqual([s['owner'] for s in s8['steps']], ['', '설치·운영 관리'])
+        s8_unopened = next(r for r in scenarios.scenario_rows(set())['others'] if r['key'] == 'S8')
+        self.assertEqual([s['owner'] for s in s8_unopened['steps']], ['설치·운영 관리', '설치·운영 관리'])
 
     def test_field_scenarios_are_split_between_mine_and_others(self):
         mine = scenarios.scenario_rows({'field'})
