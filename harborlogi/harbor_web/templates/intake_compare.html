@@ -1,0 +1,10 @@
+{% extends 'base.html' %}
+{% block title %}{{ object_ref }} 반입 비교{% endblock %}
+{% block crumb %}처리할 것{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div><h1>{{ object_ref }} 반입 비교</h1></div>
+  <div class="actions"><a class="button quiet" href="/alerts/">처리할 것 목록</a></div>
+</div>
+{% include 'intake_compare_body.html' %}
+{% endblock %}

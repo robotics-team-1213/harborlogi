@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load static %}
 {% block title %}처리할 것{% endblock %}
 {% block crumb %}처리할 것{% endblock %}
 {% block content %}
@@ -12,7 +13,7 @@
       <li>
         <span class="chip tone-hold">처리할 것{% if item.count > 1 %} {{ item.count }}건{% endif %}</span>
         <span class="attention-text"><strong class="what">{{ item.title }}</strong><span class="why">{{ item.detail }}</span></span>
-        {% if item.href %}<a class="button quiet" href="{{ item.href }}">{{ item.action }}</a>{% endif %}
+        {% if item.href %}<a class="button quiet" href="{{ item.href }}"{% if item.intake_ref %} data-intake-dialog="{{ item.href }}" data-intake-ref="{{ item.intake_ref }}"{% endif %}>{{ item.action }}</a>{% endif %}
       </li>
       {% endfor %}
     </ul>
@@ -20,6 +21,15 @@
     <p class="panel-b" role="status">처리할 것 없음 · 자동 운전 중</p>
     {% endif %}
   </section>
+  {% if intake_status %}<p class="muted">반입 인식 확인 · {{ intake_status }}</p>{% endif %}
   <p class="muted">상태는 ROSY 실행 결과로 바뀜</p>
 </section>
+<dialog id="intake-dialog" class="intake-dialog" aria-modal="true" aria-labelledby="intake-dialog-title">
+  <div class="intake-dialog-head">
+    <h2 id="intake-dialog-title">반입 비교</h2>
+    <button type="button" class="quiet" data-intake-close>닫기</button>
+  </div>
+  <div data-intake-dialog-body></div>
+</dialog>
+<script type="module" src="{% static 'harbor_web/intake-dialog.js' %}"></script>
 {% endblock %}

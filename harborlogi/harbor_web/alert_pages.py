@@ -4,6 +4,7 @@ from django.views.decorators.http import require_http_methods
 
 from harbor_web import access
 from harbor_web.auth import require_roles, roles
+from harbor_web.intake_pages import intake_alert_items
 from harbor_web.models import FieldEpisode
 from harbor_web.operations import operations_context
 from harbor_web.views import selected_observation
@@ -64,7 +65,11 @@ def alerts_context(request):
         cargo = episode.order.cargo.code if episode.order.cargo_id else '자동 재배치'
         alerts.append(dict(title=f'{cargo} · 적재면 확인 대기', detail=f'차량 {episode.vehicle_id}', count=1,
             href=f'/field/{episode.pk}/' if can_open_field else None, action='배정 보기'))
-    return dict(alerts=alerts, alert_total=sum(item['count'] for item in alerts))
+    intake_status = ''
+    if can_read:
+        intake_items, intake_status = intake_alert_items(can_read)
+        alerts.extend(intake_items)
+    return dict(alerts=alerts, alert_total=sum(item['count'] for item in alerts), intake_status=intake_status)
 
 
 @require_roles(*access.EVERYONE)

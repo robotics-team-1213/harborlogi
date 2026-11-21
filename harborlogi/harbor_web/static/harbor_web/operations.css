@@ -191,3 +191,11 @@ button.slot-level[aria-pressed=true] {outline:3px solid var(--primitive-color-or
 .slot-drop[data-drop-state=valid] {background:var(--primitive-color-teal-soft);color:var(--primitive-color-teal-dark);border:1px dashed var(--primitive-color-teal-dark)}
 .slot-drop[data-drop-state=invalid] {color:var(--semantic-text-secondary)}
 @media (prefers-reduced-motion:reduce) {.slot-card {transition:none}}
+/* Intake comparison popup & review layout (WP14) */
+.intake-panes {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--primitive-space-4);margin:var(--primitive-space-4) 0}
+.intake-attest-form {display:grid;gap:var(--primitive-space-3);margin:var(--primitive-space-4) 0;padding:var(--primitive-space-4);background:var(--semantic-surface-panel);border:1px solid var(--semantic-border-divider);border-radius:var(--primitive-radius-panel)}
+.intake-check {display:flex;align-items:center;gap:var(--primitive-space-2);font-weight:600}
+.intake-dialog {width:min(72rem,94vw);max-height:90vh;padding:var(--primitive-space-4);border:1px solid var(--semantic-border-divider);border-radius:var(--primitive-radius-panel);background:var(--semantic-surface-canvas);color:var(--semantic-text-primary)}
+.intake-dialog-head {display:flex;align-items:center;justify-content:space-between;gap:var(--primitive-space-3);margin-bottom:var(--primitive-space-3)}
+.intake-dialog-head h2 {margin:0;font-size:var(--primitive-font-section)}
+@media (max-width:760px) {.intake-panes {grid-template-columns:minmax(0,1fr)}}

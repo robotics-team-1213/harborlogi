@@ -1,0 +1,48 @@
+<div class="intake-compare" data-intake-compare>
+  {% if not ledger_configured %}
+  <p class="notice" role="status">ROSY 반입 장부 · {{ status_text }}</p>
+  <p class="helptext">반입 장부 경로가 설정되지 않아 확인 대상을 조회할 수 없습니다.</p>
+  {% else %}
+  <p class="helptext">{{ reason_label }} — {{ reason_detail }}</p>
+  <div class="intake-panes">
+    <section class="panel" aria-labelledby="intake-yard-title">
+      <div class="panel-h"><h3 id="intake-yard-title">Harbor 야드 평면</h3></div>
+      <div class="panel-b">
+        {% if cargo %}<p>대상 화물: <strong>{{ cargo.code }}</strong> · {{ cargo.name }}</p>{% else %}<p>대상 화물: <strong>{{ object_ref }}</strong></p>{% endif %}
+        {% if yard %}{% include 'yard_rows.html' with yard=yard %}{% else %}<p class="muted">야드 현황이 없습니다</p>{% endif %}
+      </div>
+    </section>
+    <div class="intake-camera-pane">
+      {% include 'topview_panel.html' with topview=topview %}
+    </div>
+  </div>
+  {% if can_attest %}
+    {% if can_operate %}
+    <form method="post" action="{% url 'intake_review' object_ref %}" class="intake-attest-form">
+      {% csrf_token %}
+      {% if is_fragment %}<input type="hidden" name="next" value="alerts">{% endif %}
+      <label class="intake-check"><input type="checkbox" name="confirm" value="1" required> 카메라 화면과 Harbor 기록이 {{ object_ref }}로 일치함을 직접 확인했습니다</label>
+      <div class="actions">
+        <button type="submit">기명 확인으로 반입 접수</button>
+        {% if is_fragment %}<button type="button" class="quiet" data-intake-close>닫기</button>{% else %}<a class="button quiet" href="/alerts/">처리할 것으로</a>{% endif %}
+      </div>
+    </form>
+    {% else %}
+    <p class="muted">운영 역할만 기명 확인을 확정할 수 있습니다. (조회 전용)</p>
+    {% endif %}
+  {% else %}
+  <p class="notice">이 항목은 보기만 가능합니다. 기명 확인 대상(번호 못 읽음)이 아닙니다.</p>
+  {% endif %}
+  <details class="fold">
+    <summary>지원 정보</summary>
+    <dl class="dl">
+      <dt>대상 식별자</dt><dd>{{ object_ref }}</dd>
+      <dt>장부 상태</dt><dd>{{ row.state }}</dd>
+      <dt>사유 코드</dt><dd>{{ reason }}</dd>
+      {% if row.intake_point %}<dt>반입 위치</dt><dd>{{ row.intake_point }}</dd>{% endif %}
+      {% if row.attested_by %}<dt>확인자</dt><dd>{{ row.attested_by }}</dd>{% endif %}
+      <dt>갱신 시각</dt><dd>{{ row.updated_at }}</dd>
+    </dl>
+  </details>
+  {% endif %}
+</div>
