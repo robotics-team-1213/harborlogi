@@ -96,3 +96,28 @@ class AccessPolicyTests(TestCase):
         field_yard = self.client.get('/inventory/')
         self.assertEqual(field_yard.status_code, 200)
         self.assertRegex(field_yard.content.decode(), r'<span class="crumb">\s*야드\s*</span>')
+
+    def test_settings_page_renders_role_matrix_from_menu_pages(self):
+        self.login('admin')
+        response = self.client.get('/settings/')
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+        self.assertIn('<div class="page-head"><div><h1>설정</h1></div>', html)
+        for href in ('/settings/maps/new/', '/settings/conditions/new/', '/settings/integration/'):
+            self.assertIn(f'href="{href}"', html)
+        self.assertIn('계정 관리에는 staff 권한이 필요합니다', html)
+        matrix = re.search(r'<table data-role-matrix>(.*?)</table>', html, re.S).group(1)
+        headers = re.findall(r'<th scope="col">([^<]+)</th>', matrix)
+        self.assertEqual(headers, ['메뉴', *[access.PERSONAS[r] for r in ('operator', 'field', 'admin', 'viewer')]])
+        row_labels = re.findall(r'<th scope="row">([^<]+)</th>', matrix)
+        self.assertEqual(row_labels, [p.label for p in access.MENU_PAGES])
+        table = response.context['role_table']
+        by_key = {row['page'].key: {cell['role']: cell for cell in row['cells']} for row in table['rows']}
+        self.assertFalse(by_key['alerts']['viewer']['in_menu'])
+        self.assertTrue(by_key['alerts']['viewer']['can_open'])
+        self.assertEqual(by_key['alerts']['viewer']['text'], '읽기(메뉴 숨김)')
+        self.assertEqual([row['page'].key for row in table['rows'] if by_key[row['page'].key]['field']['in_menu']],
+                         ['inventory', 'alerts', 'workflow'])
+        self.assertEqual(by_key['settings']['admin']['text'], '읽기·편집')
+        self.assertEqual(by_key['work']['admin']['text'], '읽기')
+        self.assertEqual(by_key['alerts']['admin']['text'], '읽기')

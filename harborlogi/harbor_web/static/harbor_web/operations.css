@@ -198,3 +198,11 @@ button.slot-level[aria-pressed=true] {outline:3px solid var(--primitive-color-or
 .strip-estop {margin-left:auto}
 .strip-estop-btn {min-height:var(--primitive-size-control);padding:var(--primitive-space-1) var(--primitive-space-3);font-size:var(--primitive-font-label)}
 @media (max-width:900px) {.status-strip {margin-left:0;padding:var(--primitive-space-2) var(--primitive-space-4)} .strip-estop {margin-left:0}}
+/* Help role cards and support fold (WP13) */
+.help-cards {display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,18rem),1fr));gap:var(--primitive-space-4);margin-bottom:var(--primitive-space-6)}
+.help-card.is-mine {border-color:var(--semantic-border-selected);background:var(--primitive-color-teal-50)}
+.help-card .panel-h h2 {margin:0;font-size:var(--primitive-font-section)}
+.help-steps {margin:0 0 var(--primitive-space-3);padding-left:var(--primitive-space-6);display:grid;gap:var(--primitive-space-2)}
+.help-card .panel-b .muted:last-child {margin-bottom:0;font-size:var(--primitive-font-label)}
+.fold {background:var(--semantic-surface-panel);border:1px solid var(--semantic-border-divider);border-radius:var(--primitive-radius-panel);padding:var(--primitive-space-3) var(--primitive-space-4)}
+.fold > summary {min-height:var(--primitive-size-control)}

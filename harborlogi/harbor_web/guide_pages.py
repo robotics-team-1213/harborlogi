@@ -103,7 +103,10 @@ def connection_guidance(config, check, *, token_present):
 
 @require_roles('viewer', 'operator', 'field', 'admin')
 def workflow(request):
-    return page(request, 'workflow.html', section='workflow', scenarios=scenario_rows(roles(request.user)))
+    from harbor_web.role_guide import role_cards
+    held = roles(request.user)
+    return page(request, 'workflow.html', section='workflow',
+                role_cards=role_cards(held), scenarios=scenario_rows(held))
 
 
 @require_roles('admin')

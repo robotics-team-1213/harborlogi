@@ -1,8 +1,21 @@
-{% extends 'base.html' %}{% block title %}업무 안내{% endblock %}{% block content %}
-<div class="page-head"><div><p class="eyebrow">HarborLogi 운영 흐름</p><h1>내가 할 일과 다음 담당자</h1><p>담당별 시나리오로 각 화면에서 남길 결과와 다음 담당을 확인하세요. 열 수 없는 화면은 링크 없이 담당만 표시합니다.</p></div></div>
+{% extends 'base.html' %}{% block title %}도움말{% endblock %}{% block content %}
+<div class="page-head"><div><h1>도움말</h1></div></div>
+<section class="help-cards" aria-label="역할별 할 일">
+{% for card in role_cards %}
+  <article class="panel help-card{% if card.is_mine %} is-mine{% endif %}" data-help-role="{{ card.role }}">
+    <div class="panel-h"><h2>{{ card.title }}</h2>{% if card.is_mine %}<span class="chip tone-info">내 역할</span>{% endif %}</div>
+    <div class="panel-b">
+      <ol class="help-steps">{% for step in card.steps %}<li>{{ step }}</li>{% endfor %}</ol>
+      <p class="muted">보는 메뉴: {{ card.menus|join:' · ' }}</p>
+    </div>
+  </article>
+{% endfor %}
+</section>
+<details class="fold"><summary>업무 시나리오 자세히(지원 담당자용)</summary>
 {% if can_read %}<section class="notice"><strong>현재 운영 연결의 범위</strong><p>다칸 계획은 검토할 수 있습니다. 실제 운영 인계에는 검증된 공간·장치 대응과 인증된 관측·업무 근거 연결이 필요합니다.</p>{% if can_admin %}<a href="/settings/integration/">설정된 연동과 남은 조건 확인</a>{% endif %}</section>{% endif %}
 {% if scenarios.mine %}<p class="eyebrow">내 일</p>{% endif %}
 {% for scenario in scenarios.mine %}{% include 'workflow_scenario.html' %}{% endfor %}
 {% if scenarios.others %}<details><summary>다른 담당의 일</summary>{% for scenario in scenarios.others %}{% include 'workflow_scenario.html' %}{% endfor %}</details>{% endif %}
 {% if can_field or can_operate or can_admin %}<section class="task-execution"><a class="button" href="/field/">배정된 확인 열기</a></section>{% endif %}
+</details>
 {% endblock %}

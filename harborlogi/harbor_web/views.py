@@ -441,7 +441,9 @@ def observation_new(request):
 @require_roles('admin')
 @require_http_methods(['GET'])
 def settings_page(request):
-    return page(request, 'settings.html', section='settings', conditions=Condition.objects.order_by('-id'))
+    from harbor_web.role_guide import role_table
+    return page(request, 'settings.html', section='settings',
+                conditions=Condition.objects.order_by('-id'), role_table=role_table())
 
 
 @require_roles('admin')

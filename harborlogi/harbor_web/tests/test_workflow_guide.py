@@ -1,6 +1,8 @@
+import re
+
 from django.contrib.auth.models import Group, User
 from django.test import TestCase
-from harbor_web import access, scenarios
+from harbor_web import access, role_guide, scenarios
 
 
 class WorkflowGuideTests(TestCase):
@@ -57,3 +59,29 @@ class WorkflowGuideTests(TestCase):
         self.assertEqual([r['key'] for r in mine['mine']], ['S5'])
         self.assertNotIn('S5', [r['key'] for r in mine['others']])
         self.assertNotIn('S1', [r['key'] for r in mine['mine']])
+
+    def test_help_renders_four_three_line_role_cards_sorted_with_current_role_first(self):
+        expected_menus = {
+            role: ' · '.join(p.label for p in access.MENU_PAGES if access.visible_in_menu(p, {role}))
+            for role in ('operator', 'field', 'admin', 'viewer')
+        }
+        for role in ('operator', 'field', 'admin', 'viewer'):
+            with self.subTest(role=role):
+                response = self.get(role)
+                html = response.content.decode()
+                self.assertIn('<div class="page-head"><div><h1>도움말</h1></div></div>', html)
+                self.assertIn('<details class="fold"><summary>업무 시나리오 자세히(지원 담당자용)</summary>', html)
+                cards_section = html.split('<section class="help-cards"', 1)[1].split('</section>', 1)[0]
+                order = re.findall(r'data-help-role="([^"]+)"', cards_section)
+                self.assertEqual(len(order), 4)
+                self.assertEqual(set(order), {'operator', 'field', 'admin', 'viewer'})
+                self.assertEqual(order[0], role)
+                self.assertNotRegex(cards_section, r'관측|원본|인계|대조|회차|#|READY|HOLD|담당 담당')
+                self.assertNotIn('<a ', cards_section)
+                cards = role_guide.role_cards({role})
+                self.assertEqual([c['role'] for c in cards], order)
+                for card in cards:
+                    self.assertEqual(len(card['steps']), 3)
+                    self.assertIn(f'보는 메뉴: {expected_menus[card["role"]]}', cards_section)
+                self.assertEqual(cards_section.count('<ol class="help-steps">'), 4)
+                self.assertEqual(cards_section.count('<li>'), 12)
