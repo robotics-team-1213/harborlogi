@@ -12,12 +12,12 @@ from harbor.spatial import Area, CargoShape, Placement, SpatialPolicy, SpatialSn
 NOW = datetime(2026, 11, 7, tzinfo=timezone.utc)
 ROOT = Path(__file__).resolve().parents[1]
 LAYOUT = YardLayout.from_dict(json.loads((ROOT / 'config/yard-layout-3x6.json').read_text(encoding='utf-8')))
-AREAS = (Area('yard', 3, 6, 3), Area('temp_a', 3, 3, 1), Area('temp_b', 3, 3, 1), Area('stand', 1, 3, 1))
+AREAS = (Area('yard', 3, 6, 3), Area('temp_a', 3, 3, 3), Area('temp_b', 3, 3, 3), Area('stand', 1, 3, 1))
 
 
 def policy(slot_cells=3):
     cells = [c.bay_id for c in LAYOUT.cells]
-    reach = {('A', b) for b in cells} | {('B', b) for b in cells} | {('A', 'temp_a'), ('B', 'temp_b'), ('A', 'stand'), ('B', 'stand')}
+    reach = {('A', b) for b in cells} | {('B', b) for b in cells} | {('A', 'temp_a'), ('B', 'temp_b'), ('A', 'stand')}
     moves = {('yard', 'yard'), ('yard', 'temp_a'), ('temp_a', 'yard'), ('yard', 'temp_b'), ('temp_b', 'yard'), ('yard', 'stand')}
     return SpatialPolicy('stand', ('temp_a', 'temp_b'), frozenset(moves), frozenset(reach), timedelta(minutes=5), ('yard',), slot_cells=slot_cells)
 
@@ -64,6 +64,20 @@ class SlotTests(unittest.TestCase):
         self.assertTrue(policy().aligned(1, 4, 0))
         with self.assertRaises(ValueError):
             policy(0)
+
+    def test_stand_requires_arm_a_and_temp_plates_allow_three_levels(self):
+        yard = snapshot([('A', 1, 1, 1), ('B', 1, 1, 2)])
+        proposal = plan_spatial(yard, OutboundRequest('A', 3), policy(), now=NOW)
+        self.assertEqual(proposal.status, 'READY')
+        stand_moves = [m for m in proposal.moves if m.destination_placement.area_id == 'stand']
+        self.assertTrue(stand_moves and all(m.primary_arm == 'A' and m.alternate_arms == () for m in stand_moves))
+
+        for name in ('spatial-policy.example.json', 'spatial-policy-3x6.json'):
+            cfg = json.loads((ROOT / 'config' / name).read_text(encoding='utf-8'))
+            stand_arms = {arm for arm, loc in cfg['arm_reach'] if loc == 'stand'}
+            self.assertEqual(stand_arms, {'A'}, name)
+            levels_by_id = {a['area_id']: a['levels'] for a in cfg['spatial_areas']}
+            self.assertEqual((levels_by_id['temp_a'], levels_by_id['temp_b'], levels_by_id['stand']), (3, 3, 1), name)
 
 
 if __name__ == '__main__':

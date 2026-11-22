@@ -7,14 +7,14 @@
   "arm_reach": [
     ["A", "Y11"], ["A", "Y12"], ["A", "Y13"],
     ["A", "Y21"], ["A", "Y22"], ["A", "Y23"],
-    ["A", "Y31"], ["A", "Y32"], ["A", "Y33"], ["A", "temp_a"],
+    ["A", "Y31"], ["A", "Y32"], ["A", "Y33"], ["A", "temp_a"], ["A", "stand"],
     ["B", "Y11"], ["B", "Y12"], ["B", "Y13"],
     ["B", "Y21"], ["B", "Y22"], ["B", "Y23"],
-    ["B", "Y31"], ["B", "Y32"], ["B", "Y33"], ["B", "temp_b"], ["B", "stand"]
+    ["B", "Y31"], ["B", "Y32"], ["B", "Y33"], ["B", "temp_b"]
   ],
   "spatial_areas": [
-    {"area_id": "temp_a", "rows": 3, "columns": 3, "levels": 1},
-    {"area_id": "temp_b", "rows": 3, "columns": 3, "levels": 1},
+    {"area_id": "temp_a", "rows": 3, "columns": 3, "levels": 3},
+    {"area_id": "temp_b", "rows": 3, "columns": 3, "levels": 3},
     {"area_id": "stand", "rows": 1, "columns": 3, "levels": 1}
   ],
   "spatial_moves": [["yard", "yard"], ["yard", "temp_a"], ["temp_a", "yard"], ["yard", "temp_b"], ["temp_b", "yard"], ["yard", "stand"]]
