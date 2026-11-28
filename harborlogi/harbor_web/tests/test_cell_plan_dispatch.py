@@ -10,7 +10,7 @@ from urllib.error import HTTPError, URLError
 from django.contrib.auth.models import Group, User
 from django.conf import settings
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.utils import timezone
 
 from harbor.transport import TransportLedger
@@ -463,6 +463,7 @@ class CellPlanDispatchTests(TestCase):
                 # P0-2 mutex: the active first dispatch blocks a second dispatch for the same order.
                 r2 = self.client.post(f'/plans/{self.plan.pk}/', {'action': 'cell_plan_rosy', 'directive_mode': 'outbound'})
                 self.assertEqual(r2.status_code, 409)
+                self.assertContains(r2, '이미 ROSY에 셀 계획으로 제안되어 진행 중', status_code=409)
                 row = CellPlanDispatch.objects.get(order=self.order)
                 client.status = 'COMPLETED'
                 r3 = self.client.post(f'/plans/{self.plan.pk}/', {'action': 'cell_plan_sync', 'dispatch_id': row.pk})
@@ -1157,3 +1158,16 @@ class YardFollowsCellPlanTests(TestCase):
         self.assertEqual(derived_b.payload['placements'], [])
         self.assertEqual(derived_b.observed_at, row_b.updated_at)
         self.assertFalse(Audit.objects.filter(action='yard.follow_skipped', object_id=str(row_b.pk)).exists())
+
+
+class RefusalTextTests(SimpleTestCase):
+    def test_codes_become_operator_text_and_unknown_codes_stay_visible(self):
+        from django.core.exceptions import ValidationError
+        from harbor_web.presentation import refusal_text
+        from harbor_web.service_common import Conflict
+        self.assertIn('이미 ROSY에 셀 계획으로', refusal_text(Conflict('ACTIVE_CELL_PLAN_DISPATCH'), 'fb'))
+        self.assertIn('이미 ROSY에 셀 계획으로', refusal_text(ValidationError('ACTIVE_CELL_PLAN_DISPATCH'), 'fb'))
+        self.assertIn('원래 작업을 대조', refusal_text(Conflict('EXISTING_ORDER_EXECUTION_REQUIRES_RECONCILIATION'), 'fb'))
+        self.assertEqual(refusal_text(Conflict('NEW_CODE_X'), 'fb'), 'fb (사유 코드 NEW_CODE_X)')
+        self.assertEqual(refusal_text(ValidationError('관측을 다시 고르세요.'), 'fb'), '관측을 다시 고르세요.')
+        self.assertEqual(refusal_text(Conflict('Cell plan dispatch cannot be cancelled in its current state.'), 'fb'), 'fb')
