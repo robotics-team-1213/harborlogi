@@ -14,7 +14,7 @@ from harbor_web import cell_plan_dispatch, commands, human_evidence, outbound_lo
 from harbor_web.auth import has_role, require_roles
 from harbor_web.models import CellPlanDispatch, Command, OutboundDispatch, Plan
 from harbor_web.pipeline import pipeline_for
-from harbor_web.presentation import gate_text, reason_text
+from harbor_web.presentation import gate_text, reason_text, refusal_text
 from harbor_web.page_helpers import page, selected_observation
 
 
@@ -63,7 +63,7 @@ def plan_detail(request, pk):
             try:
                 dry = cell_plan_dispatch.preview_harbor_plan(request.user, plan_id=pk)
             except (services.Conflict, ValidationError) as exc:
-                return render(request, 'error.html', dict(heading='OMX 셀 계획 미리보기를 실행하지 못했습니다', reason=exc.messages[0] if getattr(exc, 'messages', None) else '계획·상태·Fleet 연결을 확인하세요.', return_url=f'/plans/{pk}/'), status=409)
+                return render(request, 'error.html', dict(heading='OMX 셀 계획 미리보기를 실행하지 못했습니다', reason=refusal_text(exc, '계획·상태·Fleet 연결을 확인하세요.'), return_url=f'/plans/{pk}/'), status=409)
             preview_result = dict(mode=dry.mode, order_source=dry.order_source, moves=list(dry.moves), final_state=dry.final_state)
             messages.info(request, f'Harbor 계획 미리보기: {len(dry.moves)}단계 이동 확인')
         elif action == 'cell_plan_preview_rosy':
@@ -80,14 +80,14 @@ def plan_detail(request, pk):
                     goal=goal,
                 )
             except (services.Conflict, ValidationError) as exc:
-                return render(request, 'error.html', dict(heading='ROSY 자율 계획 미리보기를 실행하지 못했습니다', reason=exc.messages[0] if getattr(exc, 'messages', None) else '배치·목표·Fleet 연결을 확인하세요.', return_url=f'/plans/{pk}/'), status=409)
+                return render(request, 'error.html', dict(heading='ROSY 자율 계획 미리보기를 실행하지 못했습니다', reason=refusal_text(exc, '배치·목표·Fleet 연결을 확인하세요.'), return_url=f'/plans/{pk}/'), status=409)
             preview_result = dict(mode=dry.mode, order_source=dry.order_source, moves=list(dry.moves), final_state=dry.final_state)
             messages.info(request, f'ROSY 계획 미리보기: {len(dry.moves)}단계 이동 확인')
         elif action == 'cell_plan_harbor':
             try:
                 dispatch = cell_plan_dispatch.dispatch_harbor_plan(request.user, plan_id=pk)
             except (services.Conflict, ValidationError) as exc:
-                return render(request, 'error.html', dict(heading='OMX 셀 계획 요청을 보내지 못했습니다', reason=exc.messages[0] if getattr(exc, 'messages', None) else '계획·관측·Fleet 연결 상태를 확인하세요.', return_url=f'/plans/{pk}/'), status=409)
+                return render(request, 'error.html', dict(heading='OMX 셀 계획 요청을 보내지 못했습니다', reason=refusal_text(exc, '계획·관측·Fleet 연결 상태를 확인하세요.'), return_url=f'/plans/{pk}/'), status=409)
             if dispatch.state == 'UNCERTAIN':
                 messages.warning(request, '요청 응답을 받지 못해 기록된 요청 키로 진행 상태를 확인 중입니다.')
             else:
@@ -108,7 +108,7 @@ def plan_detail(request, pk):
                     plan_id=pk,
                 )
             except (services.Conflict, ValidationError) as exc:
-                return render(request, 'error.html', dict(heading='ROSY 자율 계획 요청을 보내지 못했습니다', reason=exc.messages[0] if getattr(exc, 'messages', None) else '관측 배치·지시 대상·Fleet 연결 상태를 확인하세요.', return_url=f'/plans/{pk}/'), status=409)
+                return render(request, 'error.html', dict(heading='ROSY 자율 계획 요청을 보내지 못했습니다', reason=refusal_text(exc, '관측 배치·지시 대상·Fleet 연결 상태를 확인하세요.'), return_url=f'/plans/{pk}/'), status=409)
             if dispatch.state == 'UNCERTAIN':
                 messages.warning(request, '요청 응답을 받지 못해 기록된 요청 키로 진행 상태를 확인 중입니다.')
             else:
@@ -123,7 +123,7 @@ def plan_detail(request, pk):
             try:
                 synced = cell_plan_dispatch.sync_cell_plan_dispatch(target_row.pk)
             except (services.Conflict, ValidationError, OSError, ValueError) as exc:
-                return render(request, 'error.html', dict(heading='셀 계획 진행 상태를 확인하지 못했습니다', reason=exc.messages[0] if getattr(exc, 'messages', None) else 'Fleet 연결 상태를 확인한 뒤 다시 시도하세요.', return_url=f'/plans/{pk}/'), status=409)
+                return render(request, 'error.html', dict(heading='셀 계획 진행 상태를 확인하지 못했습니다', reason=refusal_text(exc, 'Fleet 연결 상태를 확인한 뒤 다시 시도하세요.'), return_url=f'/plans/{pk}/'), status=409)
             messages.info(request, f'셀 계획 상태를 확인했습니다: {cell_plan_dispatch._STATE_LABELS.get(synced.state, synced.state)}')
             return redirect(f'/plans/{pk}/')
         if request.POST.get('action') == 'cell_plan_outbound_dispatch':
@@ -176,7 +176,7 @@ def plan_detail(request, pk):
             try:
                 cancelled = cell_plan_dispatch.cancel_cell_plan_dispatch(request.user, dispatch_id=target_row.pk, reason=reason)
             except (services.Conflict, ValidationError, OSError, ValueError) as exc:
-                return render(request, 'error.html', dict(heading='셀 계획을 취소할 수 없습니다', reason=exc.messages[0] if getattr(exc, 'messages', None) else '이미 실행되었거나 취소할 수 없는 상태입니다.', return_url=f'/plans/{pk}/'), status=409)
+                return render(request, 'error.html', dict(heading='셀 계획을 취소할 수 없습니다', reason=refusal_text(exc, '이미 실행되었거나 취소할 수 없는 상태입니다.'), return_url=f'/plans/{pk}/'), status=409)
             messages.info(request, f'셀 계획을 취소했습니다: {cell_plan_dispatch._STATE_LABELS.get(cancelled.state, cancelled.state)}')
             return redirect(f'/plans/{pk}/')
         if preview_result is None:
